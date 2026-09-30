@@ -129,3 +129,7 @@ melon-jelly.original.html   the version before the knife, mallet and spoon
 tests/                      physics, browser, scenario and self-test suites
 docs/                       screenshots for this readme
 ```
+
+## License
+
+[MIT](LICENSE)
