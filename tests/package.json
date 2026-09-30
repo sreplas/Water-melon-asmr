@@ -1,0 +1,15 @@
+{
+  "name": "melon-jelly-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node physics.test.mjs && node browser.test.mjs",
+    "test:physics": "node physics.test.mjs",
+    "test:browser": "node browser.test.mjs",
+    "test:scenarios": "node scenarios.mjs",
+    "test:selftest": "node selftest.mjs"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^24.0.0"
+  }
+}

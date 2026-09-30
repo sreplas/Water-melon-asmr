@@ -1,0 +1,2736 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<title>Melon Jelly</title>
+<meta name="description" content="Material Studies No. 009 — an interactive soft-body watermelon jelly slice, simulated with XPBD and rendered with native WebGPU.">
+<style>
+:root{
+  --paper:#e3e1dc;
+  --veil:rgba(233,231,226,.84);
+  --ink:#1c1b19;
+  --ink-2:#56524c;
+  --ink-3:#645f58;
+  --rule:rgba(28,27,25,.15);
+  --rule-2:rgba(28,27,25,.34);
+  --ruby:#a8243a;
+  --live:#2d8a58;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua","URW Palladio L",Georgia,serif;
+  --sans:"Helvetica Neue","Neue Haas Grotesk Text","Segoe UI",system-ui,-apple-system,Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace;
+  --g:clamp(16px,2.7vw,40px);
+  --panel-w:268px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--paper);color:var(--ink)}
+body{font:12.5px/1.5 var(--sans);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;-webkit-tap-highlight-color:transparent}
+#stage{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none;user-select:none;-webkit-user-select:none}
+#stage.can-grab{cursor:grab}
+#stage.grabbing{cursor:grabbing}
+#stage.orbiting{cursor:move}
+button,input,summary{font:inherit;color:inherit}
+.eyebrow{margin:0;font:500 10.5px/1.25 var(--sans);letter-spacing:.17em;text-transform:uppercase;color:var(--ink-2)}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:0}
+
+/* ---------- masthead (top left) ---------- */
+.masthead{position:fixed;top:var(--g);left:var(--g);pointer-events:none;z-index:2;transition:opacity .35s}
+.masthead.veiled{opacity:.12}
+.masthead h1{margin:.55em 0 .32em;font:italic 400 clamp(64px,8.2vw,128px)/.83 var(--serif);letter-spacing:-.028em}
+.masthead h1 span{display:block}
+.masthead h1 span+span{padding-left:.5em}
+.caption{margin:0;font:italic 400 15px/1.42 var(--serif);color:var(--ink-2)}
+.caption span{display:block}
+
+/* ---------- status (top right) ---------- */
+.status{position:fixed;top:var(--g);right:var(--g);z-index:2;display:flex;align-items:center;gap:9px;margin:0;padding:7px 11px 7px 10px;border:1px solid var(--rule-2);background:var(--veil);font:500 10.5px/1 var(--sans);letter-spacing:.17em;color:var(--ink);pointer-events:none;white-space:nowrap}
+.status .dot{width:6px;height:6px;border-radius:50%;background:var(--ink-3)}
+.status[data-state=live] .dot{background:var(--live);animation:pulse 2.6s ease-in-out infinite}
+.status[data-state=error] .dot{background:var(--ruby)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* ---------- specimen panel (right) ---------- */
+.panel{position:fixed;right:var(--g);top:calc(var(--g) + 50px);width:var(--panel-w);z-index:3;border:1px solid var(--rule-2);background:var(--veil)}
+.panel-head{display:flex;align-items:center;justify-content:space-between;padding:13px 16px 12px;border-bottom:1px solid var(--rule)}
+.panel-head .eyebrow{color:var(--ink)}
+.panel-head .idx{font:10.5px/1 var(--mono);color:var(--ink-3)}
+.panel-head .sheet-toggle{display:none}
+.panel-body{padding:4px 16px 16px}
+.group{padding:12px 0 13px;border-bottom:1px solid var(--rule)}
+.group:last-child{border-bottom:0;padding-bottom:0}
+.label{display:block;margin:0 0 9px;font:500 10px/1.2 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+fieldset{margin:0;padding:0;border:0;min-width:0}
+legend{padding:0}
+.preset{position:relative;display:grid;grid-template-columns:26px 1fr auto;align-items:center;gap:10px;padding:5px 6px 5px 4px;margin:0 -6px 1px -4px;border:1px solid transparent;cursor:pointer}
+.preset input{position:absolute;opacity:0;pointer-events:none}
+.preset svg{width:26px;height:26px;display:block}
+.preset .pn{font:italic 400 15px/1.1 var(--serif)}
+.preset .pi{font:10px/1 var(--mono);color:var(--ink-3)}
+.preset:hover{border-color:var(--rule)}
+.preset:has(input:checked){border-color:var(--ink)}
+.preset:has(input:focus-visible){outline:2px solid var(--ink);outline-offset:2px}
+.w-flesh{fill:var(--flesh)}
+.w-pale{fill:none;stroke:var(--pale);stroke-width:2.2}
+.w-rind{fill:none;stroke:var(--rind);stroke-width:2.6;stroke-linecap:round}
+.w-seed{fill:#1c1512}
+.ctl-row{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:5px}
+.ctl-row label{font:500 10px/1.2 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2)}
+.ctl-row output{font:11.5px/1 var(--mono);font-variant-numeric:tabular-nums;color:var(--ink)}
+.ctl+.ctl{margin-top:13px}
+input[type=range]{-webkit-appearance:none;appearance:none;display:block;width:100%;height:22px;margin:0;background:transparent;cursor:pointer;--p:50%}
+input[type=range]:focus{outline:none}
+input[type=range]::-webkit-slider-runnable-track{height:2px;background:linear-gradient(to right,var(--ink) 0 var(--p),var(--rule-2) var(--p) 100%)}
+input[type=range]::-moz-range-track{height:2px;background:var(--rule-2)}
+input[type=range]::-moz-range-progress{height:2px;background:var(--ink)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:13px;height:13px;margin-top:-5.5px;border-radius:50%;background:var(--paper);border:1px solid var(--ink)}
+input[type=range]::-moz-range-thumb{width:11px;height:11px;border-radius:50%;background:var(--paper);border:1px solid var(--ink)}
+input[type=range]:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 3px rgba(28,27,25,.2)}
+input[type=range]:focus-visible::-moz-range-thumb{box-shadow:0 0 0 3px rgba(28,27,25,.2)}
+.btn{appearance:none;display:inline-flex;align-items:center;justify-content:center;min-height:34px;padding:0 12px;border:1px solid var(--ink);border-radius:0;background:transparent;font:500 10.5px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--ink);cursor:pointer;transition:background-color .15s,color .15s}
+.btn:hover{background:var(--ink);color:var(--paper)}
+.btn:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.btn:active{transform:translateY(1px)}
+.btns{display:grid;grid-template-columns:1fr auto;gap:8px}
+.checks{display:flex;gap:18px}
+.chk{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:12.5px;color:var(--ink)}
+.chk input{appearance:none;-webkit-appearance:none;width:13px;height:13px;margin:0;border:1px solid var(--ink);display:grid;place-content:center;background:transparent;cursor:pointer}
+.chk input::after{content:"";width:7px;height:7px;background:var(--ink);transform:scale(0);transition:transform .12s}
+.chk input:checked::after{transform:scale(1)}
+.chk input:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.wide{width:100%;margin-top:12px}
+.btn[aria-pressed=true]{background:var(--ink);color:var(--paper)}
+
+/* ---------- foot (bottom left) ---------- */
+.foot{position:fixed;left:var(--g);bottom:var(--g);z-index:2;max-width:min(390px,calc(100vw - 3*var(--g) - var(--panel-w)));pointer-events:none}
+.hint{margin:0 0 12px;font:italic 400 14px/1.45 var(--serif);color:var(--ink)}
+.hint .kbd{display:block;margin-top:5px;font:normal 11px/1.4 var(--sans);letter-spacing:.01em;color:var(--ink-2)}
+.readouts{display:flex;gap:0;margin:0;border-top:1px solid var(--rule-2);border-bottom:1px solid var(--rule)}
+.readouts>div{flex:1 1 0;padding:8px 14px 8px 0}
+.readouts>div+div{padding-left:14px;border-left:1px solid var(--rule)}
+.readouts dt{font:500 9.5px/1.2 var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--ink-3);white-space:nowrap}
+.readouts dd{margin:4px 0 0;font:13px/1 var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.readouts dd small{font-size:10px;color:var(--ink-2)}
+.fine{margin:7px 0 0;font-size:10.5px;line-height:1.4;color:var(--ink-3)}
+.fine-short{display:none}
+/* the hint follows the input device, not the window width */
+.hint .touch{display:none}
+@media (hover:none) and (pointer:coarse){ .hint .desk{display:none} .hint .touch{display:inline} }
+
+/* ---------- notes (bottom right, in the panel's column) ---------- */
+.notes{position:fixed;right:var(--g);bottom:var(--g);z-index:3;width:var(--panel-w);border:1px solid var(--rule-2);background:var(--veil)}
+.notes summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 14px;cursor:pointer;list-style:none}
+.notes summary::-webkit-details-marker{display:none}
+.notes summary:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.notes .plus{position:relative;width:10px;height:10px}
+.notes .plus::before,.notes .plus::after{content:"";position:absolute;left:0;top:4.5px;width:10px;height:1px;background:var(--ink);transition:transform .2s}
+.notes .plus::after{transform:rotate(90deg)}
+.notes[open] .plus::after{transform:rotate(0)}
+.notes-body{padding:0 14px 14px;max-height:min(52vh,420px);overflow:auto;border-top:1px solid var(--rule)}
+.notes-body p{margin:11px 0 0;font-size:12px;line-height:1.55;color:var(--ink-2)}
+.notes-body b{font-weight:600;color:var(--ink)}
+
+/* ---------- fallback ---------- */
+.fallback{position:fixed;inset:0;z-index:10;display:grid;place-items:center;padding:24px;background:var(--paper)}
+.fallback[hidden]{display:none}
+.fallback .card{max-width:520px;border-top:1px solid var(--ink);padding-top:18px}
+.fallback h2{margin:12px 0 14px;font:italic 400 clamp(34px,5vw,52px)/1 var(--serif);letter-spacing:-.02em}
+.fallback p{margin:0 0 12px;font-size:14px;line-height:1.55;color:var(--ink-2)}
+.fallback .why{color:var(--ink);font-family:var(--mono);font-size:12px}
+.no-webgpu .panel,.no-webgpu .foot,.no-webgpu .notes{display:none}
+
+.dock{display:contents}
+/* desktop column too short for both: the panel folds to its heading while the notes are open */
+.notes-first .panel-body{display:none}
+.notes-first .panel-head{border-bottom:0}
+
+/* ---------- narrow screens: stack everything so nothing covers the slice ---------- */
+@media (max-width:560px), (max-width:760px) and (min-height:521px){
+  :root{--g:16px}
+  .masthead h1{font-size:clamp(46px,14vw,68px);margin:.42em 0 .22em}
+  .caption{font-size:12.5px;line-height:1.3}
+  .masthead{right:var(--g)}
+  .status{padding:6px 8px;gap:7px;font-size:9.5px}
+  .dock{position:fixed;left:0;right:0;bottom:0;z-index:3;display:flex;flex-direction:column;gap:8px;padding:0 var(--g) calc(var(--g) + env(safe-area-inset-bottom));pointer-events:none}
+  .dock>*{position:static;width:auto;max-width:none;pointer-events:auto}
+  .foot{pointer-events:none}
+  .hint{margin-bottom:8px;font-size:13px}
+  .hint .kbd{display:none}
+  .fine{margin-top:5px;font-size:10px}
+  .fine-long{display:none}
+  .fine-short{display:inline}
+  .readouts dd{font-size:12px}
+  .panel{order:2;top:auto}
+  .notes{order:3;width:auto}
+  .notes-body{max-height:34vh}
+  .panel-head .sheet-toggle{display:inline-flex;min-height:28px;padding:0 10px}
+  .panel-head .idx{display:none}
+  .panel-body{display:none;max-height:44vh;overflow:auto}
+  .panel.open .panel-body{display:block}
+  .panel-head{padding:9px 12px}
+  .panel.open .panel-head{border-bottom:1px solid var(--rule)}
+  .panel:not(.open) .panel-head{border-bottom:0}
+  /* while the controls sheet or the notes are open, the title steps aside so the slice keeps its room */
+  .sheet-open .masthead h1,.sheet-open .caption,.sheet-open .hint,
+  .notes-open .masthead h1,.notes-open .caption,.notes-open .hint{display:none}
+  .presets{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .presets legend{grid-column:1/-1}
+  .preset{grid-template-columns:1fr;justify-items:center;gap:4px;margin:0;padding:8px 4px;text-align:center}
+  .preset .pn{font-size:13px}
+  .preset .pi{display:none}
+}
+@media (min-width:761px) and (max-height:720px){
+  .masthead h1{font-size:clamp(54px,7vw,92px)}
+  .panel-body{max-height:calc(100vh - 2*var(--g) - 150px);overflow:auto}
+}
+/* ---------- short landscape (phones on their side): compact type, slice framed beside the heading ---------- */
+@media (orientation:landscape) and (max-height:520px) and (min-width:561px){
+  :root{--g:14px;--panel-w:236px}
+  .masthead h1{font-size:clamp(34px,10.5vh,48px);margin:.35em 0 .2em}
+  .caption{font-size:12.5px;line-height:1.35}
+  .hint{font-size:12.5px;margin-bottom:6px}
+  .hint .kbd,.fine{display:none}
+  .foot{max-width:calc(100vw - var(--panel-w) - 3*var(--g))}
+  .readouts>div{padding:6px 8px 6px 0}
+  .readouts>div+div{padding-left:8px}
+  .readouts dt{letter-spacing:.08em}
+  .readouts dd{font-size:12px}
+  .status{padding:6px 8px}
+  .panel{top:calc(var(--g) + 38px)}
+  .panel-head{padding:10px 14px 9px}
+  .panel-body{max-height:calc(100vh - 2*var(--g) - 130px);overflow:auto}
+  .notes summary{padding:9px 14px}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+<canvas id="stage" role="img" aria-label="Interactive 3D watermelon jelly slice. Drag it to stretch, lift, bend and twist it."></canvas>
+
+<header class="masthead">
+  <p class="eyebrow">Material studies / No. 009</p>
+  <h1><span>Melon</span><span>Jelly.</span></h1>
+  <p class="caption"><span>A slice of summer.</span><span>A little wobble.</span><span>Too soft to share.</span></p>
+</header>
+
+<p class="status" id="status" data-state="starting" role="status" aria-live="polite"><span class="dot" aria-hidden="true"></span><span id="statusText">WEBGPU · STARTING</span></p>
+
+<div class="dock" id="dock">
+  <aside class="panel" id="panel" aria-labelledby="panelTitle">
+    <div class="panel-head">
+      <h2 class="eyebrow" id="panelTitle">The specimen</h2>
+      <span class="idx">009</span>
+      <button class="btn sheet-toggle" id="sheetToggle" type="button" aria-expanded="false" aria-controls="panelBody">Controls</button>
+    </div>
+    <div class="panel-body" id="panelBody">
+      <fieldset class="group presets">
+        <legend class="label">Variety</legend>
+        <label class="preset" style="--flesh:#c7263d;--pale:#e9ecd2;--rind:#2c5b22">
+          <input type="radio" name="preset" value="0" checked>
+          <svg viewBox="0 0 26 26" aria-hidden="true"><path class="w-flesh" d="M3 23 L6.3 4.3 A19 19 0 0 1 21.7 19.7 Z"/><path class="w-pale" d="M6.6 6.3 A17 17 0 0 1 19.7 19.4"/><path class="w-rind" d="M6.3 4.3 A19 19 0 0 1 21.7 19.7"/><ellipse class="w-seed" cx="10.5" cy="12" rx="1.1" ry=".7" transform="rotate(40 10.5 12)"/><ellipse class="w-seed" cx="13.4" cy="16.4" rx="1.1" ry=".7" transform="rotate(20 13.4 16.4)"/></svg>
+          <span class="pn">Crimson Sweet</span><span class="pi">01</span>
+        </label>
+        <label class="preset" style="--flesh:#e2703a;--pale:#ecebcf;--rind:#3b6a26">
+          <input type="radio" name="preset" value="1">
+          <svg viewBox="0 0 26 26" aria-hidden="true"><path class="w-flesh" d="M3 23 L6.3 4.3 A19 19 0 0 1 21.7 19.7 Z"/><path class="w-pale" d="M6.6 6.3 A17 17 0 0 1 19.7 19.4"/><path class="w-rind" d="M6.3 4.3 A19 19 0 0 1 21.7 19.7"/><ellipse class="w-seed" cx="10.5" cy="12" rx="1.1" ry=".7" transform="rotate(40 10.5 12)"/><ellipse class="w-seed" cx="13.4" cy="16.4" rx="1.1" ry=".7" transform="rotate(20 13.4 16.4)"/></svg>
+          <span class="pn">Tendersweet</span><span class="pi">02</span>
+        </label>
+        <label class="preset" style="--flesh:#e6bd35;--pale:#eef0d6;--rind:#24501d">
+          <input type="radio" name="preset" value="2">
+          <svg viewBox="0 0 26 26" aria-hidden="true"><path class="w-flesh" d="M3 23 L6.3 4.3 A19 19 0 0 1 21.7 19.7 Z"/><path class="w-pale" d="M6.6 6.3 A17 17 0 0 1 19.7 19.4"/><path class="w-rind" d="M6.3 4.3 A19 19 0 0 1 21.7 19.7"/><ellipse class="w-seed" cx="10.5" cy="12" rx="1.1" ry=".7" transform="rotate(40 10.5 12)"/><ellipse class="w-seed" cx="13.4" cy="16.4" rx="1.1" ry=".7" transform="rotate(20 13.4 16.4)"/></svg>
+          <span class="pn">Yellow Doll</span><span class="pi">03</span>
+        </label>
+      </fieldset>
+      <div class="group">
+        <div class="ctl">
+          <div class="ctl-row"><label for="firm">Firmness</label><output id="firmOut" for="firm">25</output></div>
+          <input type="range" id="firm" min="0" max="100" step="1" value="25">
+        </div>
+        <div class="ctl">
+          <div class="ctl-row"><label for="damp">Internal damping</label><output id="dampOut" for="damp">2.3 /s</output></div>
+          <input type="range" id="damp" min="0" max="100" step="1" value="35">
+        </div>
+      </div>
+      <div class="group">
+        <div class="btns"><button class="btn" id="nudge" type="button">Give it a nudge</button><button class="btn" id="reset" type="button">Reset</button></div>
+      </div>
+      <div class="group">
+        <div class="checks">
+          <label class="chk"><input type="checkbox" id="slow"><span>¼ speed</span></label>
+          <label class="chk"><input type="checkbox" id="mesh"><span>Show mesh</span></label>
+        </div>
+        <button class="btn wide" id="pause" type="button" aria-pressed="false">Pause</button>
+      </div>
+    </div>
+  </aside>
+
+  <section class="foot" id="foot" aria-label="Simulation readouts">
+    <p class="hint"><span class="desk">Grab the tip, a corner, the flesh or the rind and pull — lift it, bend it, let go. <span class="kbd">Scroll while holding to twist · drag the backdrop to turn.</span></span><span class="touch">Grab the slice and pull; a second finger while holding twists it.</span></p>
+    <dl class="readouts">
+      <div><dt>Mass ≈</dt><dd><span class="num" id="roMass">—</span> <small>g</small></dd></div>
+      <div><dt>Rel. volume</dt><dd><span class="num" id="roVol">—</span> <small>%</small></dd></div>
+      <div><dt>Kinetic energy</dt><dd><span class="num" id="roKE">—</span> <small>mJ</small></dd></div>
+    </dl>
+    <p class="fine"><span class="fine-long">Live values from the simulation, in illustrative units: scaled as if the slice were 10 cm from tip to rind at 1.05 g/cm³. Volume is relative to rest; energy is approximate.</span><span class="fine-short">Illustrative units: a 10 cm slice at 1.05 g/cm³; volume vs. rest.</span></p>
+  </section>
+
+  <details class="notes" id="notes">
+    <summary><span class="eyebrow">Inside the experiment</span><span class="plus" aria-hidden="true"></span></summary>
+    <div class="notes-body">
+      <p><b>The body.</b> The slice is a volumetric lattice of <span class="num" id="nTets">—</span> tetrahedra. Each one carries a pair of XPBD constraints from a stable Neo-Hookean material: one resists changes of shape, the other holds its volume, and a last pass never lets an element turn inside out. The rind is 2.4× firmer than the flesh.</p>
+      <p><b>The clock.</b> Physics advances on a fixed 120 Hz step split into 8 substeps, capped per frame so a slow frame becomes slow motion instead of an explosion. Damping acts only on deformation — the slice keeps its momentum, but the wobble fades. The floor adds friction and a soft, low bounce.</p>
+      <p><b>The surface.</b> A WebGPU compute pass embeds a smooth, rounded <span class="num" id="nVerts">—</span>-vertex skin, <span class="num" id="nSeeds">—</span> seeds and a few air bubbles in the deforming lattice every frame and rebuilds normals, so everything moves and turns with the flesh.</p>
+      <p><b>The light.</b> A back-face pass measures how much jelly each pixel looks through. The front pass refracts the studio behind it, absorbs light by thickness (Beer–Lambert), adds internal scattering, Fresnel reflection and glossy highlights, and lets thin edges glow. Contact shadows come from a height map and a soft shadow map.</p>
+    </div>
+  </details>
+</div>
+
+<div class="fallback" id="fallback" role="alert" hidden>
+  <div class="card">
+    <p class="eyebrow">Material studies / No. 009</p>
+    <h2>This specimen needs WebGPU.</h2>
+    <p class="why" id="fallbackReason"></p>
+    <p>Melon Jelly is simulated and rendered live with native WebGPU and WGSL shaders. There is deliberately no WebGL, video or still-image stand-in, so nothing is shown here instead.</p>
+    <p>Try a current Chrome or Edge on desktop, Chrome on Android, or Safari 26 or later. Firefox ships WebGPU on Windows from version 141. If your browser supports WebGPU, check that hardware acceleration is switched on and reload.</p>
+  </div>
+</div>
+<noscript><div class="fallback"><div class="card"><h2>This specimen needs JavaScript and WebGPU.</h2></div></div></noscript>
+
+<!-- ===================================================================== -->
+<!--  Simulation core: geometry + XPBD soft body (no DOM, no GPU).          -->
+<!-- ===================================================================== -->
+<script id="melon-core">
+(function (root) {
+'use strict';
+
+const CFG = {
+  R: 1.0,                        // tip → rind (1 sim unit ≈ 10 cm)
+  ALPHA: 62 * Math.PI / 180,     // wedge angle
+  H: 0.18,                       // half thickness
+  RC: 0.075,                     // plan-view corner radius of the visible surface
+  RE: 0.06,                      // edge radius around both faces
+  SKIN: 0.045, PALE: 0.085,      // rind layers (radial thickness)
+  RINGS: 9, LAYERS: 3,           // lattice resolution
+  DENSITY: 1.0,
+  GRAVITY: 42,
+  STEP: 1 / 120, SUBSTEPS: 8, MAX_STEPS: 6,
+  FLOOR: 0.004,                  // contact margin above y = 0
+  BOUND: 2.4,                    // circular pen on the floor (the camera follows anywhere inside it)
+  LAMBDA_RATIO: 16,              // λ / μ  (≈ 0.47 Poisson ratio)
+  RIND_MULT: 2.4,
+  J_MIN: 0.3,                    // hard floor on element volume ratio
+  MU_MIN: 40, MU_MAX: 480,
+  DAMP_MIN: 0.4, DAMP_MAX: 60,
+  GRAB_COMPLIANCE: 6e-4,
+  GRAB_SPEED: 12,                // max speed of the "hand" (units/s)
+  TWIST_SPEED: 8,                // max twist rate of the hand (rad/s)
+  REFIT_STEPS: 60,               // a fold the guard has held this long (hands off) is re-fitted
+  FRICTION_S: 0.95, FRICTION_K: 0.7,
+  RESTITUTION: 0.2,
+  AIR_DRAG: 0.04,
+  SPIN_DRAG: 0.3, ROLL_DRAG: 3.0,
+  VMAX: 18,
+};
+
+// ---------------------------------------------------------------- helpers
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
+function sectorCentroid(C) { return (2 * C.R * Math.sin(C.ALPHA / 2)) / (3 * (C.ALPHA / 2)); }
+
+function inv3(m, o) {   // row-major 3×3
+  const a = m[0], b = m[1], c = m[2], d = m[3], e = m[4], f = m[5], g = m[6], h = m[7], i = m[8];
+  const A = e * i - f * h, B = -(d * i - f * g), Cc = d * h - e * g;
+  const det = a * A + b * B + c * Cc;
+  const id = 1 / det;
+  o[0] = A * id; o[1] = -(b * i - c * h) * id; o[2] = (b * f - c * e) * id;
+  o[3] = B * id; o[4] = (a * i - c * g) * id; o[5] = -(a * f - c * d) * id;
+  o[6] = Cc * id; o[7] = -(a * h - b * g) * id; o[8] = (a * e - b * d) * id;
+  return det;
+}
+
+// ------------------------------------------------------ simulation lattice
+// A triangular lattice over the wedge (ring i carries i+1 nodes), extruded
+// into LAYERS slabs; every prism splits into 3 tetrahedra with a globally
+// consistent diagonal rule so neighbouring prisms share faces exactly.
+function buildLattice(C) {
+  const N = C.RINGS, L = C.LAYERS, A = C.ALPHA, R = C.R, H = C.H;
+  const uc = sectorCentroid(C);
+  const p2 = [], ringStart = [];
+  for (let i = 0; i <= N; i++) {
+    ringStart.push(p2.length / 2);
+    const r = (R * i) / N;
+    for (let j = 0; j <= i; j++) {
+      const th = i === 0 ? 0 : -A / 2 + (A * j) / i;
+      p2.push(r * Math.cos(th), r * Math.sin(th));
+    }
+  }
+  const n2 = p2.length / 2;
+  const tris = [];
+  for (let i = 0; i < N; i++) {
+    const a = ringStart[i], b = ringStart[i + 1];
+    for (let j = 0; j <= i; j++) {
+      tris.push(a + j, b + j, b + j + 1);
+      if (j < i) tris.push(a + j, b + j + 1, a + j + 1);
+    }
+  }
+  const n = n2 * (L + 1);
+  const rest = new Float64Array(3 * n);
+  for (let k = 0; k <= L; k++) {
+    for (let q = 0; q < n2; q++) {
+      const id = k * n2 + q;
+      rest[3 * id] = p2[2 * q] - uc;
+      rest[3 * id + 1] = (2 * H * k) / L;
+      rest[3 * id + 2] = p2[2 * q + 1];
+    }
+  }
+  const tl = [];
+  const vol6 = (a, b, c, d) => {
+    const ax = rest[3 * b] - rest[3 * a], ay = rest[3 * b + 1] - rest[3 * a + 1], az = rest[3 * b + 2] - rest[3 * a + 2];
+    const bx = rest[3 * c] - rest[3 * a], by = rest[3 * c + 1] - rest[3 * a + 1], bz = rest[3 * c + 2] - rest[3 * a + 2];
+    const cx = rest[3 * d] - rest[3 * a], cy = rest[3 * d + 1] - rest[3 * a + 1], cz = rest[3 * d + 2] - rest[3 * a + 2];
+    return ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx);
+  };
+  const pushTet = (a, b, c, d) => { if (vol6(a, b, c, d) < 0) tl.push(a, b, d, c); else tl.push(a, b, c, d); };
+  for (let k = 0; k < L; k++) {
+    for (let t = 0; t < tris.length; t += 3) {
+      const s = [tris[t], tris[t + 1], tris[t + 2]].sort((x, y) => x - y);
+      const a = k * n2 + s[0], b = k * n2 + s[1], c = k * n2 + s[2];
+      pushTet(a, b, c, a + n2);
+      pushTet(b, c, a + n2, b + n2);
+      pushTet(c, a + n2, b + n2, c + n2);
+    }
+  }
+  const nt = tl.length / 4;
+  const tets = new Int32Array(tl);
+  const Q = new Float64Array(9 * nt), V0 = new Float64Array(nt), kmul = new Float64Array(nt);
+  const mass = new Float64Array(n);
+  const Dm = new Float64Array(9), Qi = new Float64Array(9);
+  let restVolume = 0;
+  for (let t = 0; t < nt; t++) {
+    const i0 = tets[4 * t], i1 = tets[4 * t + 1], i2 = tets[4 * t + 2], i3 = tets[4 * t + 3];
+    for (let r = 0; r < 3; r++) {
+      Dm[3 * r] = rest[3 * i1 + r] - rest[3 * i0 + r];
+      Dm[3 * r + 1] = rest[3 * i2 + r] - rest[3 * i0 + r];
+      Dm[3 * r + 2] = rest[3 * i3 + r] - rest[3 * i0 + r];
+    }
+    const det = inv3(Dm, Qi);
+    Q.set(Qi, 9 * t);
+    V0[t] = det / 6;
+    restVolume += V0[t];
+    const mi = (C.DENSITY * V0[t]) / 4;
+    mass[i0] += mi; mass[i1] += mi; mass[i2] += mi; mass[i3] += mi;
+    // rind elements (outer band) are firmer than the flesh
+    let cu = 0, cv = 0;
+    for (const q of [i0, i1, i2, i3]) { cu += rest[3 * q] + uc; cv += rest[3 * q + 2]; }
+    const rho = Math.hypot(cu / 4, cv / 4);
+    const x = clamp((rho - (R - 0.2)) / 0.13, 0, 1);
+    kmul[t] = 1 + (C.RIND_MULT - 1) * x * x * (3 - 2 * x);
+  }
+  // Lattice corners belong to a single tet and would be ~15× lighter than their
+  // neighbours; that mass disparity pushes their constraints out of the compliant
+  // regime and into a substep-rate limit cycle.  Floor every node at half the median.
+  const med = Float64Array.from(mass).sort()[n >> 1];
+  for (let i = 0; i < n; i++) mass[i] = Math.max(mass[i], 0.5 * med);
+  const w = new Float64Array(n);
+  for (let i = 0; i < n; i++) w[i] = 1 / mass[i];
+
+  // boundary faces (outward), unique edges
+  const fmap = new Map();
+  const FACES = [[1, 2, 3, 0], [0, 3, 2, 1], [0, 1, 3, 2], [0, 2, 1, 3]];
+  for (let t = 0; t < nt; t++) {
+    for (const f of FACES) {
+      const a = tets[4 * t + f[0]], b = tets[4 * t + f[1]], c = tets[4 * t + f[2]], o = tets[4 * t + f[3]];
+      const key = [a, b, c].sort((x, y) => x - y).join(',');
+      const e = fmap.get(key);
+      if (e) e.count++; else fmap.set(key, { count: 1, a, b, c, o });
+    }
+  }
+  const faces = [];
+  const bset = new Set();
+  for (const e of fmap.values()) {
+    if (e.count !== 1) continue;
+    let { a, b, c } = e;
+    if (vol6(a, b, c, e.o) > 0) { const tmp = b; b = c; c = tmp; }   // point away from the opposite vertex
+    faces.push(a, b, c); bset.add(a); bset.add(b); bset.add(c);
+  }
+  const eset = new Set(), edges = [];
+  for (let t = 0; t < nt; t++) {
+    for (let p = 0; p < 4; p++) for (let q = p + 1; q < 4; q++) {
+      const a = tets[4 * t + p], b = tets[4 * t + q];
+      const key = a < b ? a * 65536 + b : b * 65536 + a;
+      if (!eset.has(key)) { eset.add(key); edges.push(a, b); }
+    }
+  }
+  const top = L * n2, mid = Math.round(L / 2) * n2;
+  let fleshTop = top, best = Infinity;
+  for (let q = 0; q < n2; q++) {
+    const d = Math.hypot(p2[2 * q] - 0.55 * R, p2[2 * q + 1]);
+    if (d < best) { best = d; fleshTop = top + q; }
+  }
+  const anchors = {
+    tip: top + ringStart[0],
+    cornerA: top + ringStart[N],
+    cornerB: top + ringStart[N] + N,
+    flesh: fleshTop,
+    rind: mid + ringStart[N] + Math.floor(N / 2),
+  };
+  return {
+    n, nt, n2, rest, tets, Q, V0, kmul, mass, w, restVolume,
+    totalMass: mass.reduce((a, b) => a + b, 0),
+    restMass: restVolume * C.DENSITY,        // physical mass (the solver's per-node floor adds a little)
+    faces: new Int32Array(faces), boundaryNodes: Int32Array.from(bset),
+    edges: new Uint32Array(edges), anchors, uc,
+  };
+}
+
+// ------------------------------------------------------------- soft body
+class Sim {
+  constructor(C = CFG) {
+    this.C = C;
+    Object.assign(this, buildLattice(C));
+    const n = this.n;
+    this.x = new Float64Array(3 * n);
+    this.v = new Float64Array(3 * n);
+    this.p = new Float64Array(3 * n);
+    this.x0 = new Float64Array(3 * n);
+    this.vyPre = new Float64Array(n);
+    this.contact = new Uint8Array(n);
+    this.facc = new Float64Array(9 * n);
+    this.wacc = new Float64Array(n);
+    this.mu = 120;
+    this.damping = 2.2;
+    this.parity = 0;
+    this.resets = 0;
+    this.grab = {
+      active: false, count: 0,
+      nodes: new Int32Array(64), wts: new Float64Array(64),
+      local: new Float64Array(192), rot: new Float64Array(192),
+      target: [0, 0, 0], goal: [0, 0, 0], from: [0, 0, 0], minY: 0, twist: 0, twistCur: 0, axis: [0, 0, 1],
+    };
+    this._jlo = 1; this._dmax = 0; this._sf = 1; this._gcount = 0; this._gstuck = 0; this.refits = 0;
+    this.reset(0, 0);
+  }
+  setFirmness(s) { this.mu = this.C.MU_MIN * Math.pow(this.C.MU_MAX / this.C.MU_MIN, clamp(s, 0, 1)); return this.mu; }
+  setDamping(s) { this.damping = this.C.DAMP_MIN * Math.pow(this.C.DAMP_MAX / this.C.DAMP_MIN, clamp(s, 0, 1)); return this.damping; }
+
+  reset(drop = 0, tilt = 0) {
+    const r = this.rest, x = this.x, H = this.C.H, c = Math.cos(tilt), s = Math.sin(tilt);
+    for (let i = 0; i < this.n; i++) {
+      const X = r[3 * i], Y = r[3 * i + 1] - H, Z = r[3 * i + 2];
+      x[3 * i] = X;
+      x[3 * i + 1] = H + Y * c - Z * s + drop;
+      x[3 * i + 2] = Y * s + Z * c;
+    }
+    let lo = Infinity;
+    for (let i = 1; i < 3 * this.n; i += 3) lo = Math.min(lo, x[i]);
+    const lift = Math.max(0, this.C.FLOOR - lo);
+    if (lift) for (let i = 1; i < 3 * this.n; i += 3) x[i] += lift;
+    this.v.fill(0); this.x0.set(x); this.p.set(x);
+    this.grab.active = false; this.grab.count = 0;
+    this._gcount = 0; this._gstuck = 0;
+  }
+
+  step(dt) {
+    this.x0.set(this.x);
+    const sub = this.C.SUBSTEPS, h = dt / sub;
+    if (this.grab.active) {
+      // the hand chases the pointer at a bounded speed: flicks stay lively
+      // without teleporting a few nodes through their neighbours
+      const G = this.grab, T = G.target, g = G.goal;
+      G.from[0] = T[0]; G.from[1] = T[1]; G.from[2] = T[2];
+      const dx = g[0] - T[0], dy = g[1] - T[1], dz = g[2] - T[2], d = Math.hypot(dx, dy, dz), m = this.C.GRAB_SPEED * dt;
+      const k = d > m ? m / d : 1;
+      T[0] += dx * k; T[1] += dy * k; T[2] += dz * k;
+      const mt = this.C.TWIST_SPEED * dt, dtw = G.twist - G.twistCur;
+      G.twistCur += dtw > mt ? mt : dtw < -mt ? -mt : dtw;
+      this.prepareGrab();
+    }
+    this._gcount = 0;
+    for (let k = 0; k < sub; k++) { this._sf = (k + 1) / sub; this.substep(h); }
+    this.dampDeformation(dt);
+    // A corner folded over and held by the inversion guard in every substep, with no
+    // hand on it, is a dead end the elastic forces cannot undo: after REFIT_STEPS of
+    // that, snap the lattice back to the rigid fit of its rest shape (pose kept).
+    if (!this.grab.active && this._gcount === sub) this._gstuck++; else this._gstuck = 0;
+    if (this._gstuck > this.C.REFIT_STEPS) { this.refit(); this._gstuck = 0; this.refits++; }
+    this.sanitize();
+  }
+
+  substep(h) {
+    const n = this.n, x = this.x, v = this.v, p = this.p, g = this.C.GRAVITY, vyPre = this.vyPre;
+    for (let i = 0, i3 = 0; i < n; i++, i3 += 3) {
+      p[i3] = x[i3]; p[i3 + 1] = x[i3 + 1]; p[i3 + 2] = x[i3 + 2];
+      vyPre[i] = v[i3 + 1];
+      v[i3 + 1] -= g * h;
+      x[i3] += v[i3] * h; x[i3 + 1] += v[i3 + 1] * h; x[i3 + 2] += v[i3 + 2] * h;
+    }
+    // the hand first, then the material (so elements can always push back and
+    // never end a substep inverted), then the floor, which is never violated
+    if (this.grab.active) this.solveGrab(h);
+    this.solveTets(h);
+    this.solveContacts();
+    if (this._jlo < this.C.J_MIN + 0.25 || this.grab.active || this._dmax > 0.002) {
+      let passes = 0;
+      while (passes < 6 && this.guardTets()) passes++;   // usually 0; until clean when needed
+      if (passes) this._gcount++;
+    }
+    for (let i = 1; i < 3 * n; i += 3) if (x[i] < 0) x[i] = 0;   // the guard may nudge a node a hair below the floor
+    const ih = 1 / h, e = this.C.RESTITUTION, c = this.contact;
+    for (let i = 0, i3 = 0; i < n; i++, i3 += 3) {
+      v[i3] = (x[i3] - p[i3]) * ih;
+      v[i3 + 1] = (x[i3 + 1] - p[i3 + 1]) * ih;
+      v[i3 + 2] = (x[i3 + 2] - p[i3 + 2]) * ih;
+      if (c[i] && vyPre[i] < -0.8) { const b = -e * vyPre[i]; if (v[i3 + 1] < b) v[i3 + 1] = b; }
+    }
+  }
+
+  // Stable Neo-Hookean (Macklin & Müller 2021) as two XPBD constraints per tet:
+  //   C_D = ‖F‖_F           compliance 1/(μV)   — resists shape change
+  //   C_H = det F − γ       compliance 1/(λV)   — preserves volume, γ = 1 + μ/λ
+  solveTets(h) {
+    const x = this.x, w = this.w, T = this.tets, Q = this.Q, V = this.V0, K = this.kmul;
+    const nt = this.nt, ih2 = 1 / (h * h), mu = this.mu, lam = mu * this.C.LAMBDA_RATIO;
+    const gamma = 1 + 1 / this.C.LAMBDA_RATIO, jmin = this.C.J_MIN;
+    let jlo = Infinity;
+    // one fixed Gauss-Seidel order: alternating sweeps have two different fixed
+    // points and make stiff settings flicker between them every substep
+    for (let t = 0; t < nt; t++) {
+      const t4 = 4 * t, t9 = 9 * t;
+      const n0 = T[t4], n1 = T[t4 + 1], n2 = T[t4 + 2], n3 = T[t4 + 3];
+      const a0 = 3 * n0, a1 = 3 * n1, a2 = 3 * n2, a3 = 3 * n3;
+      const w0 = w[n0], w1 = w[n1], w2 = w[n2], w3 = w[n3];
+      const q00 = Q[t9], q01 = Q[t9 + 1], q02 = Q[t9 + 2];
+      const q10 = Q[t9 + 3], q11 = Q[t9 + 4], q12 = Q[t9 + 5];
+      const q20 = Q[t9 + 6], q21 = Q[t9 + 7], q22 = Q[t9 + 8];
+      const vol = V[t], km = K[t];
+
+      // ---- deviatoric
+      {
+        const x0 = x[a0], y0 = x[a0 + 1], z0 = x[a0 + 2];
+        const ax = x[a1] - x0, ay = x[a1 + 1] - y0, az = x[a1 + 2] - z0;
+        const bx = x[a2] - x0, by = x[a2 + 1] - y0, bz = x[a2 + 2] - z0;
+        const cx = x[a3] - x0, cy = x[a3 + 1] - y0, cz = x[a3 + 2] - z0;
+        const f0x = ax * q00 + bx * q10 + cx * q20, f0y = ay * q00 + by * q10 + cy * q20, f0z = az * q00 + bz * q10 + cz * q20;
+        const f1x = ax * q01 + bx * q11 + cx * q21, f1y = ay * q01 + by * q11 + cy * q21, f1z = az * q01 + bz * q11 + cz * q21;
+        const f2x = ax * q02 + bx * q12 + cx * q22, f2y = ay * q02 + by * q12 + cy * q22, f2z = az * q02 + bz * q12 + cz * q22;
+        const r = Math.sqrt(f0x * f0x + f0y * f0y + f0z * f0z + f1x * f1x + f1y * f1y + f1z * f1z + f2x * f2x + f2y * f2y + f2z * f2z);
+        if (r > 1e-9) {
+          const ir = 1 / r;
+          const g1x = (f0x * q00 + f1x * q01 + f2x * q02) * ir, g1y = (f0y * q00 + f1y * q01 + f2y * q02) * ir, g1z = (f0z * q00 + f1z * q01 + f2z * q02) * ir;
+          const g2x = (f0x * q10 + f1x * q11 + f2x * q12) * ir, g2y = (f0y * q10 + f1y * q11 + f2y * q12) * ir, g2z = (f0z * q10 + f1z * q11 + f2z * q12) * ir;
+          const g3x = (f0x * q20 + f1x * q21 + f2x * q22) * ir, g3y = (f0y * q20 + f1y * q21 + f2y * q22) * ir, g3z = (f0z * q20 + f1z * q21 + f2z * q22) * ir;
+          const g0x = -(g1x + g2x + g3x), g0y = -(g1y + g2y + g3y), g0z = -(g1z + g2z + g3z);
+          const den = w0 * (g0x * g0x + g0y * g0y + g0z * g0z) + w1 * (g1x * g1x + g1y * g1y + g1z * g1z)
+            + w2 * (g2x * g2x + g2y * g2y + g2z * g2z) + w3 * (g3x * g3x + g3y * g3y + g3z * g3z)
+            + ih2 / (mu * km * vol);
+          const dl = -r / den;
+          x[a0] += w0 * g0x * dl; x[a0 + 1] += w0 * g0y * dl; x[a0 + 2] += w0 * g0z * dl;
+          x[a1] += w1 * g1x * dl; x[a1 + 1] += w1 * g1y * dl; x[a1 + 2] += w1 * g1z * dl;
+          x[a2] += w2 * g2x * dl; x[a2 + 1] += w2 * g2y * dl; x[a2 + 2] += w2 * g2z * dl;
+          x[a3] += w3 * g3x * dl; x[a3 + 1] += w3 * g3y * dl; x[a3 + 2] += w3 * g3z * dl;
+        }
+      }
+      // ---- hydrostatic (volume)
+      {
+        const x0 = x[a0], y0 = x[a0 + 1], z0 = x[a0 + 2];
+        const ax = x[a1] - x0, ay = x[a1 + 1] - y0, az = x[a1 + 2] - z0;
+        const bx = x[a2] - x0, by = x[a2 + 1] - y0, bz = x[a2 + 2] - z0;
+        const cx = x[a3] - x0, cy = x[a3 + 1] - y0, cz = x[a3 + 2] - z0;
+        const f0x = ax * q00 + bx * q10 + cx * q20, f0y = ay * q00 + by * q10 + cy * q20, f0z = az * q00 + bz * q10 + cz * q20;
+        const f1x = ax * q01 + bx * q11 + cx * q21, f1y = ay * q01 + by * q11 + cy * q21, f1z = az * q01 + bz * q11 + cz * q21;
+        const f2x = ax * q02 + bx * q12 + cx * q22, f2y = ay * q02 + by * q12 + cy * q22, f2z = az * q02 + bz * q12 + cz * q22;
+        // cofactor columns: f1×f2, f2×f0, f0×f1
+        const c0x = f1y * f2z - f1z * f2y, c0y = f1z * f2x - f1x * f2z, c0z = f1x * f2y - f1y * f2x;
+        const c1x = f2y * f0z - f2z * f0y, c1y = f2z * f0x - f2x * f0z, c1z = f2x * f0y - f2y * f0x;
+        const c2x = f0y * f1z - f0z * f1y, c2y = f0z * f1x - f0x * f1z, c2z = f0x * f1y - f0y * f1x;
+        const J = f0x * c0x + f0y * c0y + f0z * c0z;
+        const Cv = J - gamma, comp = ih2 / (lam * km * vol);
+        if (J < jlo) jlo = J;
+        const g1x = c0x * q00 + c1x * q01 + c2x * q02, g1y = c0y * q00 + c1y * q01 + c2y * q02, g1z = c0z * q00 + c1z * q01 + c2z * q02;
+        const g2x = c0x * q10 + c1x * q11 + c2x * q12, g2y = c0y * q10 + c1y * q11 + c2y * q12, g2z = c0z * q10 + c1z * q11 + c2z * q12;
+        const g3x = c0x * q20 + c1x * q21 + c2x * q22, g3y = c0y * q20 + c1y * q21 + c2y * q22, g3z = c0z * q20 + c1z * q21 + c2z * q22;
+        const g0x = -(g1x + g2x + g3x), g0y = -(g1y + g2y + g3y), g0z = -(g1z + g2z + g3z);
+        const den = w0 * (g0x * g0x + g0y * g0y + g0z * g0z) + w1 * (g1x * g1x + g1y * g1y + g1z * g1z)
+          + w2 * (g2x * g2x + g2y * g2y + g2z * g2z) + w3 * (g3x * g3x + g3y * g3y + g3z * g3z) + comp;
+        if (den > 1e-12) {
+          let dl = -Cv / den;                          // elastic push toward gamma (compliant)
+          const dg = den - comp;                       // geometric part only
+          // below J_MIN add a hard floor, but only where it pushes harder than the elastic
+          // term (replacing the elastic push made a squashed corner a stable fixed point)
+          if (J < jmin && dg > 1e-12) dl = Math.max(dl, -(J - jmin) / dg);
+          x[a0] += w0 * g0x * dl; x[a0 + 1] += w0 * g0y * dl; x[a0 + 2] += w0 * g0z * dl;
+          x[a1] += w1 * g1x * dl; x[a1 + 1] += w1 * g1y * dl; x[a1 + 2] += w1 * g1z * dl;
+          x[a2] += w2 * g2x * dl; x[a2 + 1] += w2 * g2y * dl; x[a2 + 2] += w2 * g2z * dl;
+          x[a3] += w3 * g3x * dl; x[a3 + 1] += w3 * g3y * dl; x[a3 + 2] += w3 * g3z * dl;
+        }
+      }
+    }
+    this._jlo = jlo;
+  }
+
+  // Last word of every substep: any element squeezed below J_MIN (by the hand or
+  // the floor) is pushed back to J_MIN exactly, so nothing ever ends up inverted.
+  guardTets() {
+    const x = this.x, w = this.w, T = this.tets, Q = this.Q, jmin = this.C.J_MIN;
+    let fixed = 0;
+    for (let t = 0; t < this.nt; t++) {
+      const t4 = 4 * t, t9 = 9 * t;
+      const n0 = T[t4], n1 = T[t4 + 1], n2 = T[t4 + 2], n3 = T[t4 + 3];
+      const a0 = 3 * n0, a1 = 3 * n1, a2 = 3 * n2, a3 = 3 * n3;
+      const x0 = x[a0], y0 = x[a0 + 1], z0 = x[a0 + 2];
+      const ax = x[a1] - x0, ay = x[a1 + 1] - y0, az = x[a1 + 2] - z0;
+      const bx = x[a2] - x0, by = x[a2 + 1] - y0, bz = x[a2 + 2] - z0;
+      const cx = x[a3] - x0, cy = x[a3 + 1] - y0, cz = x[a3 + 2] - z0;
+      // J = det(Ds)·det(Q); cheap test first
+      const det = ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx);
+      if (det * 6 * this.V0[t] >= jmin * 36 * this.V0[t] * this.V0[t]) continue;   // det(Ds) = 6V ⇒ J = det/(6V0)
+      const q00 = Q[t9], q01 = Q[t9 + 1], q02 = Q[t9 + 2], q10 = Q[t9 + 3], q11 = Q[t9 + 4], q12 = Q[t9 + 5], q20 = Q[t9 + 6], q21 = Q[t9 + 7], q22 = Q[t9 + 8];
+      const f0x = ax * q00 + bx * q10 + cx * q20, f0y = ay * q00 + by * q10 + cy * q20, f0z = az * q00 + bz * q10 + cz * q20;
+      const f1x = ax * q01 + bx * q11 + cx * q21, f1y = ay * q01 + by * q11 + cy * q21, f1z = az * q01 + bz * q11 + cz * q21;
+      const f2x = ax * q02 + bx * q12 + cx * q22, f2y = ay * q02 + by * q12 + cy * q22, f2z = az * q02 + bz * q12 + cz * q22;
+      const c0x = f1y * f2z - f1z * f2y, c0y = f1z * f2x - f1x * f2z, c0z = f1x * f2y - f1y * f2x;
+      const c1x = f2y * f0z - f2z * f0y, c1y = f2z * f0x - f2x * f0z, c1z = f2x * f0y - f2y * f0x;
+      const c2x = f0y * f1z - f0z * f1y, c2y = f0z * f1x - f0x * f1z, c2z = f0x * f1y - f0y * f1x;
+      const J = f0x * c0x + f0y * c0y + f0z * c0z;
+      const g1x = c0x * q00 + c1x * q01 + c2x * q02, g1y = c0y * q00 + c1y * q01 + c2y * q02, g1z = c0z * q00 + c1z * q01 + c2z * q02;
+      const g2x = c0x * q10 + c1x * q11 + c2x * q12, g2y = c0y * q10 + c1y * q11 + c2y * q12, g2z = c0z * q10 + c1z * q11 + c2z * q12;
+      const g3x = c0x * q20 + c1x * q21 + c2x * q22, g3y = c0y * q20 + c1y * q21 + c2y * q22, g3z = c0z * q20 + c1z * q21 + c2z * q22;
+      const g0x = -(g1x + g2x + g3x), g0y = -(g1y + g2y + g3y), g0z = -(g1z + g2z + g3z);
+      const w0 = w[n0], w1 = w[n1], w2 = w[n2], w3 = w[n3], FL = this.C.FLOOR + 1e-6;
+      // a node lying on the floor may be moved sideways or up, never pushed down into it
+      const v0 = x[a0 + 1] <= FL && g0y < 0 ? 0 : w0, v1 = x[a1 + 1] <= FL && g1y < 0 ? 0 : w1;
+      const v2 = x[a2 + 1] <= FL && g2y < 0 ? 0 : w2, v3 = x[a3 + 1] <= FL && g3y < 0 ? 0 : w3;
+      const den = w0 * (g0x * g0x + g0z * g0z) + v0 * g0y * g0y + w1 * (g1x * g1x + g1z * g1z) + v1 * g1y * g1y
+        + w2 * (g2x * g2x + g2z * g2z) + v2 * g2y * g2y + w3 * (g3x * g3x + g3z * g3z) + v3 * g3y * g3y;
+      if (!(den > 1e-12)) continue;
+      fixed++;
+      const dl = -(J - jmin) / den;
+      x[a0] += w0 * g0x * dl; x[a0 + 1] += v0 * g0y * dl; x[a0 + 2] += w0 * g0z * dl;
+      x[a1] += w1 * g1x * dl; x[a1 + 1] += v1 * g1y * dl; x[a1 + 2] += w1 * g1z * dl;
+      x[a2] += w2 * g2x * dl; x[a2 + 1] += v2 * g2y * dl; x[a2 + 2] += w2 * g2z * dl;
+      x[a3] += w3 * g3x * dl; x[a3 + 1] += v3 * g3y * dl; x[a3 + 2] += w3 * g3z * dl;
+    }
+    return fixed;
+  }
+
+  prepareGrab() {
+    const G = this.grab, a = G.axis, th = G.twistCur, c = Math.cos(th), s = Math.sin(th), t = 1 - c;
+    const r00 = c + a[0] * a[0] * t, r01 = a[0] * a[1] * t - a[2] * s, r02 = a[0] * a[2] * t + a[1] * s;
+    const r10 = a[1] * a[0] * t + a[2] * s, r11 = c + a[1] * a[1] * t, r12 = a[1] * a[2] * t - a[0] * s;
+    const r20 = a[2] * a[0] * t - a[1] * s, r21 = a[2] * a[1] * t + a[0] * s, r22 = c + a[2] * a[2] * t;
+    for (let k = 0; k < G.count; k++) {
+      const ox = G.local[3 * k], oy = G.local[3 * k + 1], oz = G.local[3 * k + 2];
+      G.rot[3 * k] = r00 * ox + r01 * oy + r02 * oz;
+      G.rot[3 * k + 1] = r10 * ox + r11 * oy + r12 * oz;
+      G.rot[3 * k + 2] = r20 * ox + r21 * oy + r22 * oz;
+    }
+  }
+
+  solveGrab(h) {
+    const G = this.grab, x = this.x, w = this.w, ih2 = 1 / (h * h), al = this.C.GRAB_COMPLIANCE;
+    // the hand moves smoothly through the substeps instead of jumping at the first one
+    const f = this._sf, F = G.from, T = G.target;
+    const tx = F[0] + (T[0] - F[0]) * f, ty = F[1] + (T[1] - F[1]) * f, tz = F[2] + (T[2] - F[2]) * f;
+    for (let k = 0; k < G.count; k++) {
+      const i = G.nodes[k], i3 = 3 * i, wi = w[i];
+      // a held node is never asked to go below the floor (the patch can reach under the grab point)
+      const gy = Math.max(ty + G.rot[3 * k + 1], this.C.FLOOR);
+      const dx = x[i3] - (tx + G.rot[3 * k]), dy = x[i3 + 1] - gy, dz = x[i3 + 2] - (tz + G.rot[3 * k + 2]);
+      const s = wi / (wi + (al / G.wts[k]) * ih2);
+      x[i3] -= dx * s; x[i3 + 1] -= dy * s; x[i3 + 2] -= dz * s;
+    }
+  }
+
+  solveContacts() {
+    const n = this.n, x = this.x, p = this.p, C = this.C, F = C.FLOOR, ms = C.FRICTION_S, mk = C.FRICTION_K, B = C.BOUND, c = this.contact;
+    let dmax = 0;
+    for (let i = 0, i3 = 0; i < n; i++, i3 += 3) {
+      c[i] = 0;
+      if (x[i3 + 1] < F) {
+        const d = F - x[i3 + 1];
+        if (d > dmax) dmax = d;
+        x[i3 + 1] = F;
+        const dx = x[i3] - p[i3], dz = x[i3 + 2] - p[i3 + 2];
+        const dl = Math.sqrt(dx * dx + dz * dz);
+        if (dl < ms * d) { x[i3] = p[i3]; x[i3 + 2] = p[i3 + 2]; }
+        else if (dl > 0) { const k = Math.min(1, (mk * d) / dl); x[i3] -= dx * k; x[i3 + 2] -= dz * k; }
+        c[i] = 1;
+      }
+      const rx = x[i3], rz = x[i3 + 2], rr = rx * rx + rz * rz;
+      if (rr > B * B) { const s = B / Math.sqrt(rr); x[i3] = rx * s; x[i3 + 2] = rz * s; }
+      if (x[i3 + 1] > 5) x[i3 + 1] = 5;
+    }
+    this._dmax = dmax;
+  }
+
+  // Damp only the non-rigid part of the velocity field (Müller et al. 2007):
+  // momentum and spin survive, the wobble decays.
+  dampDeformation(dt) {
+    const n = this.n, x = this.x, v = this.v, m = this.mass;
+    let M = 0, cx = 0, cy = 0, cz = 0, px = 0, py = 0, pz = 0;
+    for (let i = 0, i3 = 0; i < n; i++, i3 += 3) {
+      const mi = m[i]; M += mi;
+      cx += mi * x[i3]; cy += mi * x[i3 + 1]; cz += mi * x[i3 + 2];
+      px += mi * v[i3]; py += mi * v[i3 + 1]; pz += mi * v[i3 + 2];
+    }
+    cx /= M; cy /= M; cz /= M;
+    const vx = px / M, vy = py / M, vz = pz / M;
+    let Lx = 0, Ly = 0, Lz = 0, Ixx = 0, Iyy = 0, Izz = 0, Ixy = 0, Ixz = 0, Iyz = 0;
+    for (let i = 0, i3 = 0; i < n; i++, i3 += 3) {
+      const mi = m[i], rx = x[i3] - cx, ry = x[i3 + 1] - cy, rz = x[i3 + 2] - cz;
+      const ux = v[i3], uy = v[i3 + 1], uz = v[i3 + 2];
+      Lx += mi * (ry * uz - rz * uy); Ly += mi * (rz * ux - rx * uz); Lz += mi * (rx * uy - ry * ux);
+      Ixx += mi * (ry * ry + rz * rz); Iyy += mi * (rx * rx + rz * rz); Izz += mi * (rx * rx + ry * ry);
+      Ixy -= mi * rx * ry; Ixz -= mi * rx * rz; Iyz -= mi * ry * rz;
+    }
+    const I = this._I || (this._I = new Float64Array(9)), Ii = this._Ii || (this._Ii = new Float64Array(9));
+    I[0] = Ixx; I[1] = Ixy; I[2] = Ixz; I[3] = Ixy; I[4] = Iyy; I[5] = Iyz; I[6] = Ixz; I[7] = Iyz; I[8] = Izz;
+    let wx = 0, wy = 0, wz = 0;
+    if (Math.abs(inv3(I, Ii)) > 1e-12) {
+      wx = Ii[0] * Lx + Ii[1] * Ly + Ii[2] * Lz;
+      wy = Ii[3] * Lx + Ii[4] * Ly + Ii[5] * Lz;
+      wz = Ii[6] * Lx + Ii[7] * Ly + Ii[8] * Lz;
+    }
+    // deformation decays at `damping`; rigid spin gets a light drag in the air and
+    // rolling resistance on the floor (a soft contact patch eats energy), so a slice
+    // rocking on its curved rind comes to rest instead of rocking forever
+    let touching = 0;
+    for (let i = 0; i < n; i++) touching += this.contact[i];
+    const spin = this.C.SPIN_DRAG + (touching ? this.C.ROLL_DRAG : 0);
+    const f = Math.exp(-this.damping * dt), fa = Math.exp(-this.C.AIR_DRAG * dt), fw = Math.exp(-spin * dt);
+    for (let i = 0, i3 = 0; i < n; i++, i3 += 3) {
+      const rx = x[i3] - cx, ry = x[i3 + 1] - cy, rz = x[i3 + 2] - cz;
+      const sx = wy * rz - wz * ry, sy = wz * rx - wx * rz, sz = wx * ry - wy * rx;
+      const bx = vx + sx, by = vy + sy, bz = vz + sz;
+      v[i3] = (vx + sx * fw + (v[i3] - bx) * f) * fa;
+      v[i3 + 1] = (vy + sy * fw + (v[i3 + 1] - by) * f) * fa;
+      v[i3 + 2] = (vz + sz * fw + (v[i3 + 2] - bz) * f) * fa;
+    }
+  }
+
+  // Rigid fit of the rest shape to the current pose (polar decomposition of the
+  // mass-weighted covariance), keeping the centre of mass and its velocity.
+  refit() {
+    const n = this.n, x = this.x, r = this.rest, m = this.mass, v = this.v;
+    let M = 0, cx = 0, cy = 0, cz = 0, rx = 0, ry = 0, rz = 0, px = 0, py = 0, pz = 0;
+    for (let i = 0; i < n; i++) {
+      const mi = m[i]; M += mi;
+      cx += mi * x[3 * i]; cy += mi * x[3 * i + 1]; cz += mi * x[3 * i + 2];
+      rx += mi * r[3 * i]; ry += mi * r[3 * i + 1]; rz += mi * r[3 * i + 2];
+      px += mi * v[3 * i]; py += mi * v[3 * i + 1]; pz += mi * v[3 * i + 2];
+    }
+    cx /= M; cy /= M; cz /= M; rx /= M; ry /= M; rz /= M;
+    const A = new Float64Array(9);
+    for (let i = 0; i < n; i++) {
+      const mi = m[i], p0 = x[3 * i] - cx, p1 = x[3 * i + 1] - cy, p2 = x[3 * i + 2] - cz;
+      const q0 = r[3 * i] - rx, q1 = r[3 * i + 1] - ry, q2 = r[3 * i + 2] - rz;
+      A[0] += mi * p0 * q0; A[1] += mi * p0 * q1; A[2] += mi * p0 * q2;
+      A[3] += mi * p1 * q0; A[4] += mi * p1 * q1; A[5] += mi * p1 * q2;
+      A[6] += mi * p2 * q0; A[7] += mi * p2 * q1; A[8] += mi * p2 * q2;
+    }
+    const Ri = new Float64Array(9);
+    for (let it = 0; it < 40; it++) {           // Higham: R ← ½(R + R⁻ᵀ)
+      const det = inv3(A, Ri);
+      if (!(Math.abs(det) > 1e-18)) return;
+      for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) A[3 * a + b] = 0.5 * (A[3 * a + b] + Ri[3 * b + a]);
+    }
+    let lo = Infinity;
+    for (let i = 0; i < n; i++) {
+      const q0 = r[3 * i] - rx, q1 = r[3 * i + 1] - ry, q2 = r[3 * i + 2] - rz;
+      x[3 * i] = cx + A[0] * q0 + A[1] * q1 + A[2] * q2;
+      x[3 * i + 1] = cy + A[3] * q0 + A[4] * q1 + A[5] * q2;
+      x[3 * i + 2] = cz + A[6] * q0 + A[7] * q1 + A[8] * q2;
+      lo = Math.min(lo, x[3 * i + 1]);
+    }
+    const lift = Math.max(0, this.C.FLOOR - lo);
+    for (let i = 0; i < n; i++) { x[3 * i + 1] += lift; v[3 * i] = px / M; v[3 * i + 1] = py / M; v[3 * i + 2] = pz / M; }
+    this.x0.set(x); this.p.set(x);
+  }
+
+  sanitize() {
+    const x = this.x, v = this.v, n3 = 3 * this.n, vmax = this.C.VMAX;
+    for (let i = 0; i < n3; i++) {
+      if (!Number.isFinite(x[i]) || !Number.isFinite(v[i]) || Math.abs(x[i]) > 50) {
+        this.resets++; this.reset(0.2, 0); return;
+      }
+    }
+    for (let i = 0; i < n3; i += 3) {
+      const s2 = v[i] * v[i] + v[i + 1] * v[i + 1] + v[i + 2] * v[i + 2];
+      if (s2 > vmax * vmax) { const k = vmax / Math.sqrt(s2); v[i] *= k; v[i + 1] *= k; v[i + 2] *= k; }
+    }
+  }
+
+  // ------------------------------------------------------------ interaction
+  beginGrab(P, axis, radius = 0.2, sigma = 0.1) {
+    const x = this.x, G = this.grab, cand = [];
+    let near = 0, nearD = Infinity;
+    for (let i = 0; i < this.n; i++) {
+      const d = Math.hypot(x[3 * i] - P[0], x[3 * i + 1] - P[1], x[3 * i + 2] - P[2]);
+      if (d < nearD) { nearD = d; near = i; }
+      if (d < radius) cand.push([i, Math.exp(-(d * d) / (sigma * sigma))]);
+    }
+    if (!cand.length) cand.push([near, 1]);
+    cand.sort((a, b) => b[1] - a[1]);
+    G.count = Math.min(cand.length, 64);
+    for (let k = 0; k < G.count; k++) {
+      const i = cand[k][0];
+      G.nodes[k] = i;
+      G.wts[k] = Math.max(cand[k][1], 0.04);
+      G.local[3 * k] = x[3 * i] - P[0]; G.local[3 * k + 1] = x[3 * i + 1] - P[1]; G.local[3 * k + 2] = x[3 * i + 2] - P[2];
+    }
+    G.target[0] = P[0]; G.target[1] = P[1]; G.target[2] = P[2];
+    G.goal[0] = P[0]; G.goal[1] = P[1]; G.goal[2] = P[2];
+    G.from[0] = P[0]; G.from[1] = P[1]; G.from[2] = P[2];
+    // how low the grabbed point may be pressed: at most ~half of the jelly under it
+    const h0 = Math.min(Math.max(P[1] - this.C.FLOOR, 0), 2 * this.C.H);
+    G.minY = this.C.FLOOR + 0.02 + 0.5 * h0;
+    G.axis = axis ? axis.slice(0, 3) : [0, 0, 1];
+    G.twist = 0; G.twistCur = 0;
+    G.active = true;
+    this.prepareGrab();
+  }
+  // Where the pointer wants the grabbed point; clamped to a sane working volume.
+  setGrabGoal(x, y, z) {
+    const G = this.grab, B = this.C.BOUND - 0.35, r = Math.hypot(x, z);
+    if (r > B) { x *= B / r; z *= B / r; }
+    G.goal[0] = x; G.goal[1] = Math.min(Math.max(y, G.minY), 2.4); G.goal[2] = z;
+  }
+  endGrab() { this.grab.active = false; }
+
+  nudge(kind, strength = 1) {
+    const x = this.x, v = this.v, A = this.anchors;
+    const presets = [
+      { at: A.tip, dir: [0.15, 1, 0.12], amp: 3.4, sig: 0.3 },
+      { at: A.flesh, dir: [0, -1, 0], amp: 3.0, sig: 0.26 },
+      { at: A.cornerA, dir: [-0.2, 1, 0.35], amp: 3.0, sig: 0.3 },
+      { at: A.rind, dir: [-1, 0.45, 0.1], amp: 2.6, sig: 0.38 },
+    ];
+    const P = presets[((kind % presets.length) + presets.length) % presets.length];
+    const l = Math.hypot(P.dir[0], P.dir[1], P.dir[2]);
+    const dx = P.dir[0] / l, dy = P.dir[1] / l, dz = P.dir[2] / l;
+    const cx = x[3 * P.at], cy = x[3 * P.at + 1], cz = x[3 * P.at + 2];
+    for (let i = 0; i < this.n; i++) {
+      const d2 = (x[3 * i] - cx) ** 2 + (x[3 * i + 1] - cy) ** 2 + (x[3 * i + 2] - cz) ** 2;
+      const f = P.amp * strength * Math.exp(-d2 / (2 * P.sig * P.sig));
+      v[3 * i] += f * dx; v[3 * i + 1] += f * dy; v[3 * i + 2] += f * dz;
+    }
+  }
+
+  // ------------------------------------------------------------ queries
+  interpolate(alpha, out) {
+    const x = this.x, x0 = this.x0, a = clamp(alpha, 0, 1);
+    for (let i = 0; i < x.length; i++) out[i] = x0[i] + (x[i] - x0[i]) * a;
+    return out;
+  }
+
+  // Per-node deformation gradient (volume-weighted average of incident tets),
+  // packed as { pos.xyz,1 | F col0 | F col1 | F col2 } for the GPU.
+  computeNodeFrames(pos, out) {
+    const n = this.n, T = this.tets, Q = this.Q, V = this.V0, acc = this.facc, ws = this.wacc;
+    acc.fill(0); ws.fill(0);
+    for (let t = 0; t < this.nt; t++) {
+      const t4 = 4 * t, t9 = 9 * t;
+      const i0 = 3 * T[t4], i1 = 3 * T[t4 + 1], i2 = 3 * T[t4 + 2], i3 = 3 * T[t4 + 3];
+      const vol = V[t];
+      for (let r = 0; r < 3; r++) {
+        const d1 = pos[i1 + r] - pos[i0 + r], d2 = pos[i2 + r] - pos[i0 + r], d3 = pos[i3 + r] - pos[i0 + r];
+        for (let c = 0; c < 3; c++) {
+          const f = (d1 * Q[t9 + c] + d2 * Q[t9 + 3 + c] + d3 * Q[t9 + 6 + c]) * vol;
+          const j = 3 * r + c;
+          acc[3 * i0 + j] += f; acc[3 * i1 + j] += f; acc[3 * i2 + j] += f; acc[3 * i3 + j] += f;
+        }
+      }
+      ws[T[t4]] += vol; ws[T[t4 + 1]] += vol; ws[T[t4 + 2]] += vol; ws[T[t4 + 3]] += vol;
+    }
+    for (let i = 0; i < n; i++) {
+      const o = 16 * i, a = 9 * i, iw = 1 / ws[i];
+      out[o] = pos[3 * i]; out[o + 1] = pos[3 * i + 1]; out[o + 2] = pos[3 * i + 2]; out[o + 3] = 1;
+      for (let c = 0; c < 3; c++) {
+        out[o + 4 + 4 * c] = acc[a + c] * iw;
+        out[o + 5 + 4 * c] = acc[a + 3 + c] * iw;
+        out[o + 6 + 4 * c] = acc[a + 6 + c] * iw;
+        out[o + 7 + 4 * c] = 0;
+      }
+    }
+    return out;
+  }
+
+  centerOfMass(pos, out) {
+    const m = this.mass; let M = 0, x = 0, y = 0, z = 0;
+    for (let i = 0; i < this.n; i++) { const mi = m[i]; M += mi; x += mi * pos[3 * i]; y += mi * pos[3 * i + 1]; z += mi * pos[3 * i + 2]; }
+    out[0] = x / M; out[1] = y / M; out[2] = z / M;
+    return out;
+  }
+
+  stats(out = {}) {
+    const x = this.x, v = this.v, m = this.mass, T = this.tets, V0 = this.V0;
+    let vol = 0, minJ = Infinity, maxJ = -Infinity;
+    for (let t = 0; t < this.nt; t++) {
+      const a = 3 * T[4 * t], b = 3 * T[4 * t + 1], c = 3 * T[4 * t + 2], d = 3 * T[4 * t + 3];
+      const ax = x[b] - x[a], ay = x[b + 1] - x[a + 1], az = x[b + 2] - x[a + 2];
+      const bx = x[c] - x[a], by = x[c + 1] - x[a + 1], bz = x[c + 2] - x[a + 2];
+      const cx = x[d] - x[a], cy = x[d + 1] - x[a + 1], cz = x[d + 2] - x[a + 2];
+      const sv = (ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx)) / 6;
+      vol += sv;
+      const J = sv / V0[t];
+      if (J < minJ) minJ = J;
+      if (J > maxJ) maxJ = J;
+    }
+    let ke = 0, maxV2 = 0, minY = Infinity, maxY = -Infinity;
+    for (let i = 0; i < this.n; i++) {
+      const s2 = v[3 * i] ** 2 + v[3 * i + 1] ** 2 + v[3 * i + 2] ** 2;
+      ke += 0.5 * m[i] * s2;
+      if (s2 > maxV2) maxV2 = s2;
+      const y = x[3 * i + 1];
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    out.volume = vol / this.restVolume; out.ke = ke; out.minJ = minJ; out.maxJ = maxJ;
+    out.maxSpeed = Math.sqrt(maxV2); out.minY = minY; out.maxY = maxY; out.resets = this.resets;
+    return out;
+  }
+
+  raycast(pos, ro, rd) {
+    const F = this.faces;
+    let best = Infinity;
+    for (let f = 0; f < F.length; f += 3) {
+      const a = 3 * F[f], b = 3 * F[f + 1], c = 3 * F[f + 2];
+      const e1x = pos[b] - pos[a], e1y = pos[b + 1] - pos[a + 1], e1z = pos[b + 2] - pos[a + 2];
+      const e2x = pos[c] - pos[a], e2y = pos[c + 1] - pos[a + 1], e2z = pos[c + 2] - pos[a + 2];
+      const px = rd[1] * e2z - rd[2] * e2y, py = rd[2] * e2x - rd[0] * e2z, pz = rd[0] * e2y - rd[1] * e2x;
+      const det = e1x * px + e1y * py + e1z * pz;
+      if (Math.abs(det) < 1e-12) continue;
+      const id = 1 / det;
+      const tx = ro[0] - pos[a], ty = ro[1] - pos[a + 1], tz = ro[2] - pos[a + 2];
+      const u = (tx * px + ty * py + tz * pz) * id;
+      if (u < 0 || u > 1) continue;
+      const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x;
+      const vv = (rd[0] * qx + rd[1] * qy + rd[2] * qz) * id;
+      if (vv < 0 || u + vv > 1) continue;
+      const t = (e2x * qx + e2y * qy + e2z * qz) * id;
+      if (t > 1e-4 && t < best) best = t;
+    }
+    if (best === Infinity) return null;
+    return [ro[0] + rd[0] * best, ro[1] + rd[1] * best, ro[2] + rd[2] * best];
+  }
+}
+
+// ------------------------------------------------------- visible surface
+// Rounded wedge outline (plan view, u along the bisector from the tip).
+function buildOutline(C, M) {
+  const A = C.ALPHA, R = C.R, rc = C.RC, h = A / 2, sh = Math.sin(h), ch = Math.cos(h);
+  const tcx = rc / sh;                          // tip-corner centre on the bisector
+  const b = tcx * ch, cc = tcx * tcx - (R - rc) * (R - rc);
+  const s = -b + Math.sqrt(b * b - cc);
+  const cpx = tcx + s * ch, cpy = s * sh;       // rind-corner centre (upper)
+  const nPx = -sh, nPy = ch, nMx = -sh, nMy = -ch;
+  const segs = [];
+  const line = (x0, y0, x1, y1, nx, ny) => segs.push({ k: 0, x0, y0, x1, y1, nx, ny, len: Math.hypot(x1 - x0, y1 - y0) });
+  const arc = (cx, cy, r, a0, a1) => segs.push({ k: 1, cx, cy, r, a0, a1, len: r * (a1 - a0) });
+  const aNM = Math.atan2(nMy, nMx), aNP = Math.atan2(nPy, nPx);
+  const aCm = Math.atan2(-cpy, cpx), aCp = Math.atan2(cpy, cpx);
+  line(tcx + rc * nMx, rc * nMy, cpx + rc * nMx, -cpy + rc * nMy, nMx, nMy);
+  arc(cpx, -cpy, rc, aNM, aCm);
+  arc(0, 0, R, aCm, aCp);
+  arc(cpx, cpy, rc, aCp, aNP);
+  line(cpx + rc * nPx, cpy + rc * nPy, tcx + rc * nPx, rc * nPy, nPx, nPy);
+  arc(tcx, 0, rc, aNP, aNM + 2 * Math.PI);
+  const total = segs.reduce((a, g) => a + g.len, 0);
+  const pts = new Float64Array(2 * M), nrm = new Float64Array(2 * M);
+  let si = 0, acc = 0;
+  for (let k = 0; k < M; k++) {
+    const d = (k * total) / M;
+    while (si < segs.length - 1 && d > acc + segs[si].len) { acc += segs[si].len; si++; }
+    const g = segs[si], t = g.len > 0 ? (d - acc) / g.len : 0;
+    if (g.k === 0) {
+      pts[2 * k] = g.x0 + (g.x1 - g.x0) * t; pts[2 * k + 1] = g.y0 + (g.y1 - g.y0) * t;
+      nrm[2 * k] = g.nx; nrm[2 * k + 1] = g.ny;
+    } else {
+      const a = g.a0 + (g.a1 - g.a0) * t;
+      nrm[2 * k] = Math.cos(a); nrm[2 * k + 1] = Math.sin(a);
+      pts[2 * k] = g.cx + g.r * nrm[2 * k]; pts[2 * k + 1] = g.cy + g.r * nrm[2 * k + 1];
+    }
+  }
+  return { pts, nrm };
+}
+
+function orientTris(pos, nrm, idx) {
+  for (let t = 0; t < idx.length; t += 3) {
+    const a = 3 * idx[t], b = 3 * idx[t + 1], c = 3 * idx[t + 2];
+    const e1x = pos[b] - pos[a], e1y = pos[b + 1] - pos[a + 1], e1z = pos[b + 2] - pos[a + 2];
+    const e2x = pos[c] - pos[a], e2y = pos[c + 1] - pos[a + 1], e2z = pos[c + 2] - pos[a + 2];
+    const nx = e1y * e2z - e1z * e2y, ny = e1z * e2x - e1x * e2z, nz = e1x * e2y - e1y * e2x;
+    const s = nx * (nrm[a] + nrm[b] + nrm[c]) + ny * (nrm[a + 1] + nrm[b + 1] + nrm[c + 1]) + nz * (nrm[a + 2] + nrm[b + 2] + nrm[c + 2]);
+    if (s < 0) { const tmp = idx[t + 1]; idx[t + 1] = idx[t + 2]; idx[t + 2] = tmp; }
+  }
+  return idx;
+}
+
+// A closed, welded, rounded slab: side band with a stadium profile plus two caps.
+function buildRenderMesh(C, M = 240, K = 22, PA = 7, PS = 4) {
+  const uc = sectorCentroid(C), H = C.H, RE = C.RE;
+  const ol = buildOutline(C, M);
+  const prof = [];
+  for (let j = 0; j <= PA; j++) { const f = (Math.PI / 2) * (1 - j / PA); prof.push([RE * Math.cos(f), H - RE + RE * Math.sin(f), Math.cos(f), Math.sin(f)]); }
+  for (let j = 1; j < PS; j++) prof.push([RE, H - RE - (2 * (H - RE) * j) / PS, 1, 0]);
+  for (let j = 0; j <= PA; j++) { const f = (-Math.PI / 2) * (j / PA); prof.push([RE * Math.cos(f), -(H - RE) + RE * Math.sin(f), Math.cos(f), Math.sin(f)]); }
+  const nP = prof.length;
+  const P = [], Nn = [], Rg = [];
+  const push = (u, y, v, nx, ny, nz, reg) => { P.push(u - uc, H + y, v); Nn.push(nx, ny, nz); Rg.push(reg); return P.length / 3 - 1; };
+  const inner = new Float64Array(2 * M);
+  for (let s = 0; s < M; s++) {
+    const pu = ol.pts[2 * s], pv = ol.pts[2 * s + 1], nu = ol.nrm[2 * s], nv = ol.nrm[2 * s + 1];
+    inner[2 * s] = pu - RE * nu; inner[2 * s + 1] = pv - RE * nv;
+    for (let j = 0; j < nP; j++) {
+      const [o, y, no, ny] = prof[j];
+      push(inner[2 * s] + o * nu, y, inner[2 * s + 1] + o * nv, no * nu, ny, no * nv, 1);
+    }
+  }
+  const side = (s, j) => (s % M) * nP + j;
+  const cU = C.R / (1 + Math.sin(C.ALPHA / 2));
+  const cap = (yy, ny, reg, edgeRow) => {
+    const centre = push(cU, yy, 0, 0, ny, 0, reg);
+    const base = P.length / 3;
+    for (let k = 1; k < K; k++) {
+      const t = k / K;
+      for (let s = 0; s < M; s++) push(cU + (inner[2 * s] - cU) * t, yy, inner[2 * s + 1] * t, 0, ny, 0, reg);
+    }
+    return (s, k) => (k === 0 ? centre : k === K ? side(s, edgeRow) : base + (k - 1) * M + (s % M));
+  };
+  const top = cap(H, 1, 0, 0);
+  const bot = cap(-H, -1, 2, nP - 1);
+  const idx = [];
+  for (let s = 0; s < M; s++) {
+    for (let j = 0; j < nP - 1; j++) {
+      const a = side(s, j), b = side(s + 1, j), c = side(s + 1, j + 1), d = side(s, j + 1);
+      idx.push(a, b, c, a, c, d);
+    }
+    for (const f of [top, bot]) {
+      idx.push(f(s, 0), f(s, 1), f(s + 1, 1));
+      for (let k = 1; k < K; k++) {
+        const a = f(s, k), b = f(s + 1, k), c = f(s + 1, k + 1), d = f(s, k + 1);
+        idx.push(a, b, c, a, c, d);
+      }
+    }
+  }
+  const positions = new Float64Array(P), normals = new Float64Array(Nn);
+  const indices = orientTris(positions, normals, new Uint32Array(idx));
+  return { positions, normals, region: new Float32Array(Rg), indices, count: positions.length / 3 };
+}
+
+function buildAdjacency(idx, nv) {
+  const off = new Uint32Array(nv + 1);
+  for (let k = 0; k < idx.length; k++) off[idx[k] + 1]++;
+  for (let i = 0; i < nv; i++) off[i + 1] += off[i];
+  const fill = off.slice(0, nv), list = new Uint32Array(idx.length);
+  for (let k = 0; k < idx.length; k++) list[fill[idx[k]]++] = (k / 3) | 0;
+  return { off, list };
+}
+
+// Smooth embedding: every surface point follows its K nearest lattice nodes,
+// p = Σ wₖ (xₖ + Fₖ (X − Xₖ)), with compact (1 − d²/h²)³ weights, h = d(K+1).
+// Exact at rest and for any affine motion; continuous across the surface.
+function computeSkin(rest, nNodes, pts, nPts, K = 8) {
+  const idx = new Uint32Array(nPts * K), wt = new Float32Array(nPts * K);
+  const bd = new Float64Array(K + 1), bi = new Int32Array(K + 1);
+  for (let p = 0; p < nPts; p++) {
+    bd.fill(Infinity); bi.fill(0);
+    const X = pts[3 * p], Y = pts[3 * p + 1], Z = pts[3 * p + 2];
+    for (let j = 0; j < nNodes; j++) {
+      const dx = rest[3 * j] - X, dy = rest[3 * j + 1] - Y, dz = rest[3 * j + 2] - Z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 >= bd[K]) continue;
+      let k = K;
+      while (k > 0 && bd[k - 1] > d2) { bd[k] = bd[k - 1]; bi[k] = bi[k - 1]; k--; }
+      bd[k] = d2; bi[k] = j;
+    }
+    const h2 = bd[K] > 0 ? bd[K] : 1;
+    let sum = 0;
+    for (let k = 0; k < K; k++) { const q = Math.max(0, 1 - bd[k] / h2); const w = q * q * q; wt[p * K + k] = w; idx[p * K + k] = bi[k]; sum += w; }
+    if (sum < 1e-12) { wt[p * K] = 1; sum = 1; for (let k = 1; k < K; k++) wt[p * K + k] = 0; }
+    for (let k = 0; k < K; k++) wt[p * K + k] /= sum;
+  }
+  return { idx, wt };
+}
+
+// CPU mirror of the GPU embedding (used for validation hooks).
+function embedPoint(nodeFrames, rest, idx, wt, base, X, Y, Z, out) {
+  let x = 0, y = 0, z = 0;
+  for (let k = 0; k < 8; k++) {
+    const w = wt[base + k]; if (w === 0) continue;
+    const i = idx[base + k], o = 16 * i;
+    const dx = X - rest[3 * i], dy = Y - rest[3 * i + 1], dz = Z - rest[3 * i + 2];
+    x += w * (nodeFrames[o] + nodeFrames[o + 4] * dx + nodeFrames[o + 8] * dy + nodeFrames[o + 12] * dz);
+    y += w * (nodeFrames[o + 1] + nodeFrames[o + 5] * dx + nodeFrames[o + 9] * dy + nodeFrames[o + 13] * dz);
+    z += w * (nodeFrames[o + 2] + nodeFrames[o + 6] * dx + nodeFrames[o + 10] * dy + nodeFrames[o + 14] * dz);
+  }
+  out[0] = x; out[1] = y; out[2] = z;
+  return out;
+}
+
+// Seeds (kind 0), pale immature seeds (kind 1) and air bubbles (kind 2).
+function buildInstances(C) {
+  const rng = mulberry32(90009);
+  const uc = sectorCentroid(C), H2 = 2 * C.H, h = C.ALPHA / 2;
+  const list = [];
+  const jit = (a) => (rng() - 0.5) * 2 * a;
+  const frame = (th, jitA, tiltA, tiltB) => {
+    const a = th + Math.PI + jitA;                 // long axis points toward the tip
+    // right-handed frame (el × ew = et) so the instanced mesh is never mirrored
+    let el = [Math.cos(a), 0, Math.sin(a)], ew = [Math.sin(a), 0, -Math.cos(a)], et = [0, 1, 0];
+    const c1 = Math.cos(tiltA), s1 = Math.sin(tiltA);
+    const el2 = el.map((q, i) => q * c1 + et[i] * s1), et2 = et.map((q, i) => q * c1 - el[i] * s1);
+    el = el2; et = et2;
+    const c2 = Math.cos(tiltB), s2 = Math.sin(tiltB);
+    const ew2 = ew.map((q, i) => q * c2 + et[i] * s2), et3 = et.map((q, i) => q * c2 - ew[i] * s2);
+    return [el, ew2, et3];
+  };
+  const seed = (rho, frac, face, kind) => {
+    rho += jit(0.02);
+    const lim = h - Math.asin(Math.min(0.95, 0.13 / rho));
+    const th = clamp(frac + jit(0.06), -1, 1) * lim;
+    const s = kind === 0 ? 1 + jit(0.1) : 0.62 + jit(0.08);
+    const len = 0.086 * s, wid = 0.052 * s, thk = 0.025 * s;
+    const [el, ew, et] = frame(th, jit(0.3), jit(0.2), jit(0.16));
+    // dark seeds sit just under the cut face (a sliver proud of it at most); pale ones float deeper
+    const depth = kind === 0 ? 0.47 * thk + 0.0055 : 0.9 * thk + 0.014;
+    const u = rho * Math.cos(th), v = rho * Math.sin(th);
+    const y = face > 0 ? H2 - depth : depth;
+    list.push({ c: [u - uc, y, v], L: [...el.map((q) => q * len / 2), ...ew.map((q) => q * wid / 2), ...et.map((q) => q * thk / 2)], kind });
+  };
+  const rows = (face, spec) => { for (const [rho, fr] of spec) for (const f of fr) seed(rho, f, face, 0); };
+  rows(1, [[0.43, [-0.42, 0.38]], [0.58, [-0.66, 0.0, 0.64]], [0.72, [-0.74, -0.25, 0.24, 0.73]]]);
+  rows(-1, [[0.47, [-0.05]], [0.61, [-0.6, 0.55]], [0.75, [-0.66, -0.12, 0.42]]]);
+  for (const [rho, fr, face] of [[0.36, 0.3, 1], [0.52, 0.45, 1], [0.66, -0.4, 1], [0.55, -0.2, -1]]) seed(rho, fr, face, 1);
+  const nSeedMesh = list.length;
+  for (let b = 0; b < 9; b++) {
+    const rho = 0.22 + rng() * 0.6;
+    const lim = h - Math.asin(Math.min(0.95, 0.1 / rho));
+    const th = jit(1) * lim;
+    const r = 0.005 + rng() * 0.008;
+    const y = C.H + jit(0.62 * C.H);
+    list.push({ c: [rho * Math.cos(th) - uc, y, rho * Math.sin(th)], L: [r, 0, 0, 0, r, 0, 0, 0, r], kind: 2 });
+  }
+  return { list, nSeedMesh, nBubbles: list.length - nSeedMesh };
+}
+
+// Unit teardrop (pointed toward +x) or sphere, with outward normals.
+function buildBlobMesh(nu, nv, taper) {
+  const pos = [], nrm = [], idx = [];
+  const f = (u, v) => {
+    const r = (Math.sin(u) * (1 - taper * Math.cos(u))) / (taper ? 1.02 : 1);
+    return [Math.cos(u), r * Math.cos(v), r * Math.sin(v)];
+  };
+  for (let i = 0; i <= nu; i++) {
+    const u = (Math.PI * i) / nu;
+    for (let j = 0; j <= nv; j++) {
+      const v = (2 * Math.PI * j) / nv;
+      const p = f(u, v);
+      let n;
+      if (i === 0) n = [1, 0, 0];
+      else if (i === nu) n = [-1, 0, 0];
+      else {
+        const e = 1e-4, pu = f(u + e, v), pv = f(u, v + e);
+        const a = [pu[0] - p[0], pu[1] - p[1], pu[2] - p[2]], b = [pv[0] - p[0], pv[1] - p[1], pv[2] - p[2]];
+        n = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+        const l = Math.hypot(n[0], n[1], n[2]) || 1;
+        n = n.map((q) => q / l);
+        if (n[0] * p[0] + n[1] * p[1] + n[2] * p[2] < 0) n = n.map((q) => -q);
+      }
+      pos.push(...p); nrm.push(...n);
+    }
+  }
+  for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
+    const a = i * (nv + 1) + j, b = a + 1, c = a + nv + 1, d = c + 1;
+    idx.push(a, c, d, a, d, b);
+  }
+  const P = new Float64Array(pos), N = new Float64Array(nrm);
+  const I = orientTris(P, N, new Uint32Array(idx));
+  const vb = new Float32Array((pos.length / 3) * 6);
+  for (let i = 0; i < pos.length / 3; i++) { vb.set(pos.slice(3 * i, 3 * i + 3), 6 * i); vb.set(nrm.slice(3 * i, 3 * i + 3), 6 * i + 3); }
+  return { vb, ib: new Uint16Array(I), count: I.length };
+}
+
+root.MelonCore = {
+  CFG, Sim, buildLattice, buildOutline, buildRenderMesh, buildAdjacency, computeSkin,
+  embedPoint, buildInstances, buildBlobMesh, sectorCentroid, mulberry32,
+};
+})(typeof window !== 'undefined' ? window : globalThis);
+</script>
+
+<!-- ===================================================================== -->
+<!--  WebGPU renderer + interface                                           -->
+<!-- ===================================================================== -->
+<script type="module">
+const Core = window.MelonCore;
+const C = Core.CFG;
+const $ = (id) => document.getElementById(id);
+const canvas = $('stage');
+const statusEl = $('status');
+const statusText = $('statusText');
+const mqReduce = matchMedia('(prefers-reduced-motion: reduce)');
+const mqNarrow = matchMedia('(max-width: 560px), (max-width: 760px) and (min-height: 521px)');
+const mqShort = matchMedia('(orientation: landscape) and (max-height: 520px) and (min-width: 561px)');
+const mqCoarse = matchMedia('(pointer: coarse)');
+let reduceMotion = mqReduce.matches;
+
+const hooks = (window.__melon = { ready: false, failed: null, errors: [], frames: 0 });
+
+function setStatus(state, text) { statusEl.dataset.state = state; statusText.textContent = text; }
+function fail(reason, err) {
+  setStatus('error', 'WEBGPU · UNAVAILABLE');
+  $('fallbackReason').textContent = reason;
+  $('fallback').hidden = false;
+  document.documentElement.classList.add('no-webgpu');
+  hooks.failed = reason;
+  if (err) console.error(err);
+}
+
+// ------------------------------------------------------------------ math
+const M4 = {
+  create: () => new Float32Array(16),
+  mul(a, b, o) {
+    for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+      o[c * 4 + r] = a[r] * b[c * 4] + a[4 + r] * b[c * 4 + 1] + a[8 + r] * b[c * 4 + 2] + a[12 + r] * b[c * 4 + 3];
+    }
+    return o;
+  },
+  invert(m, o) {
+    const a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3], a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7];
+    const a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11], a30 = m[12], a31 = m[13], a32 = m[14], a33 = m[15];
+    const b00 = a00 * a11 - a01 * a10, b01 = a00 * a12 - a02 * a10, b02 = a00 * a13 - a03 * a10;
+    const b03 = a01 * a12 - a02 * a11, b04 = a01 * a13 - a03 * a11, b05 = a02 * a13 - a03 * a12;
+    const b06 = a20 * a31 - a21 * a30, b07 = a20 * a32 - a22 * a30, b08 = a20 * a33 - a23 * a30;
+    const b09 = a21 * a32 - a22 * a31, b10 = a21 * a33 - a23 * a31, b11 = a22 * a33 - a23 * a32;
+    let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+    if (!det) return o;
+    det = 1 / det;
+    o[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det; o[1] = (a02 * b10 - a01 * b11 - a03 * b09) * det;
+    o[2] = (a31 * b05 - a32 * b04 + a33 * b03) * det; o[3] = (a22 * b04 - a21 * b05 - a23 * b03) * det;
+    o[4] = (a12 * b08 - a10 * b11 - a13 * b07) * det; o[5] = (a00 * b11 - a02 * b08 + a03 * b07) * det;
+    o[6] = (a32 * b02 - a30 * b05 - a33 * b01) * det; o[7] = (a20 * b05 - a22 * b02 + a23 * b01) * det;
+    o[8] = (a10 * b10 - a11 * b08 + a13 * b06) * det; o[9] = (a01 * b08 - a00 * b10 - a03 * b06) * det;
+    o[10] = (a30 * b04 - a31 * b02 + a33 * b00) * det; o[11] = (a21 * b02 - a20 * b04 - a23 * b00) * det;
+    o[12] = (a11 * b07 - a10 * b09 - a12 * b06) * det; o[13] = (a00 * b09 - a01 * b07 + a02 * b06) * det;
+    o[14] = (a31 * b01 - a30 * b03 - a32 * b00) * det; o[15] = (a20 * b03 - a21 * b01 + a22 * b00) * det;
+    return o;
+  },
+  perspective(fovy, aspect, near, far, o) {
+    const f = 1 / Math.tan(fovy / 2);
+    o.fill(0);
+    o[0] = f / aspect; o[5] = f; o[10] = far / (near - far); o[11] = -1; o[14] = (near * far) / (near - far);
+    return o;
+  },
+  ortho(l, r, b, t, n, f, o) {
+    o.fill(0);
+    o[0] = 2 / (r - l); o[5] = 2 / (t - b); o[10] = 1 / (n - f);
+    o[12] = (l + r) / (l - r); o[13] = (t + b) / (b - t); o[14] = n / (n - f); o[15] = 1;
+    return o;
+  },
+  lookAt(e, c, up, o) {
+    let zx = e[0] - c[0], zy = e[1] - c[1], zz = e[2] - c[2];
+    let l = 1 / Math.hypot(zx, zy, zz); zx *= l; zy *= l; zz *= l;
+    let xx = up[1] * zz - up[2] * zy, xy = up[2] * zx - up[0] * zz, xz = up[0] * zy - up[1] * zx;
+    l = 1 / Math.hypot(xx, xy, xz); xx *= l; xy *= l; xz *= l;
+    const yx = zy * xz - zz * xy, yy = zz * xx - zx * xz, yz = zx * xy - zy * xx;
+    o[0] = xx; o[1] = yx; o[2] = zx; o[3] = 0;
+    o[4] = xy; o[5] = yy; o[6] = zy; o[7] = 0;
+    o[8] = xz; o[9] = yz; o[10] = zz; o[11] = 0;
+    o[12] = -(xx * e[0] + xy * e[1] + xz * e[2]);
+    o[13] = -(yx * e[0] + yy * e[1] + yz * e[2]);
+    o[14] = -(zx * e[0] + zy * e[1] + zz * e[2]);
+    o[15] = 1;
+    return o;
+  },
+};
+const norm3 = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
+
+// ------------------------------------------------------------ WGSL shaders
+const WGSL_COMMON = /* wgsl */`
+struct Frame {
+  viewProj : mat4x4f,
+  invViewProj : mat4x4f,
+  lightViewProj : mat4x4f,
+  aoViewProj : mat4x4f,
+  camPos : vec4f,
+  keyDir : vec4f,
+  viewport : vec4f,
+  aoRect : vec4f,
+  shadowInfo : vec4f,
+  misc : vec4f,
+};
+struct Mat {
+  absorb : vec4f,
+  scatter : vec4f,
+  glow : vec4f,
+  pale : vec4f,
+  skinA : vec4f,
+  skinB : vec4f,
+  seed : vec4f,
+  shadow : vec4f,
+  geo : vec4f,
+  geo2 : vec4f,
+};
+@group(0) @binding(0) var<uniform> U : Frame;
+@group(0) @binding(1) var<uniform> Mt : Mat;
+
+const PI : f32 = 3.14159265;
+const FILL_DIR : vec3f = vec3f(0.60, 0.32, 0.73);
+const RIM_DIR : vec3f = vec3f(0.62, 0.40, -0.67);
+
+fn hashu(x : u32) -> u32 {
+  let v = x * 747796405u + 2891336453u;
+  let w = ((v >> ((v >> 28u) + 4u)) ^ v) * 277803737u;
+  return (w >> 22u) ^ w;
+}
+fn hash3(p : vec3i) -> f32 {
+  let h = hashu(bitcast<u32>(p.x) ^ hashu(bitcast<u32>(p.y) ^ hashu(bitcast<u32>(p.z))));
+  return f32(h) * (1.0 / 4294967295.0);
+}
+fn vnoise(p : vec3f) -> f32 {
+  let i = vec3i(floor(p));
+  let f = fract(p);
+  let u = f * f * (3.0 - 2.0 * f);
+  let a = mix(hash3(i), hash3(i + vec3i(1, 0, 0)), u.x);
+  let b = mix(hash3(i + vec3i(0, 1, 0)), hash3(i + vec3i(1, 1, 0)), u.x);
+  let c = mix(hash3(i + vec3i(0, 0, 1)), hash3(i + vec3i(1, 0, 1)), u.x);
+  let d = mix(hash3(i + vec3i(0, 1, 1)), hash3(i + vec3i(1, 1, 1)), u.x);
+  return mix(mix(a, b, u.y), mix(c, d, u.y), u.z);
+}
+fn fbm(p : vec3f) -> f32 {
+  var s = 0.0;
+  var a = 0.5;
+  var q = p;
+  for (var i = 0; i < 4; i++) {
+    s += a * vnoise(q);
+    q = q * 2.03 + vec3f(1.7, 9.2, 3.1);
+    a *= 0.5;
+  }
+  return s / 0.9375;
+}
+fn ign(p : vec2f) -> f32 {
+  return fract(52.9829189 * fract(dot(p, vec2f(0.06711056, 0.00583715))));
+}
+
+// Rectangular studio softbox seen from direction d.
+fn softbox(d : vec3f, axis : vec3f, halfSize : vec2f, soft : f32) -> f32 {
+  let c = dot(d, axis);
+  if (c <= 0.05) { return 0.0; }
+  let upv = select(vec3f(0.0, 1.0, 0.0), vec3f(1.0, 0.0, 0.0), abs(axis.y) > 0.95);
+  let t = normalize(cross(upv, axis));
+  let b = cross(axis, t);
+  let q = abs(vec2f(dot(d, t), dot(d, b)) / c) - halfSize;
+  return 1.0 - smoothstep(-soft, soft, max(q.x, q.y));
+}
+fn backdrop(d : vec3f) -> vec3f {
+  return mix(vec3f(0.79, 0.78, 0.755), vec3f(0.86, 0.855, 0.84), smoothstep(0.0, 0.75, d.y));
+}
+// Environment used for reflections. Like a real product set it is mostly
+// flagged dark ("negative fill"), so colours stay rich and only the softboxes
+// read as crisp highlights; the floor bounce and a bright horizon band remain.
+fn studio(d : vec3f) -> vec3f {
+  var c = mix(vec3f(0.30, 0.295, 0.285), vec3f(0.58, 0.575, 0.56), smoothstep(-0.45, 0.0, d.y));
+  c = mix(c, vec3f(0.13, 0.13, 0.135), smoothstep(0.03, 0.45, d.y));
+  c += vec3f(1.0, 0.975, 0.94) * (2.2 * softbox(d, normalize(U.keyDir.xyz), vec2f(0.3, 0.2), 0.06));
+  c += vec3f(0.95, 0.97, 1.0) * (1.25 * softbox(d, normalize(FILL_DIR), vec2f(0.14, 0.8), 0.06));
+  c += vec3f(1.0, 0.985, 0.96) * (1.7 * softbox(d, normalize(RIM_DIR), vec2f(0.8, 0.1), 0.05));
+  return c;
+}
+fn irradiance(n : vec3f) -> vec3f {
+  return mix(vec3f(0.40, 0.39, 0.375), vec3f(0.94, 0.93, 0.915), n.y * 0.5 + 0.5);
+}
+
+@vertex fn vs_full(@builtin(vertex_index) vi : u32) -> @builtin(position) vec4f {
+  let p = vec2f(f32((vi << 1u) & 2u), f32(vi & 2u)) * 2.0 - 1.0;
+  return vec4f(p, 0.0, 1.0);
+}
+`;
+
+const WGSL_BG = /* wgsl */`
+@group(1) @binding(0) var shadowTex : texture_depth_2d;
+@group(1) @binding(1) var shadowSmp : sampler_comparison;
+@group(1) @binding(2) var aoTex : texture_2d<f32>;
+@group(1) @binding(3) var linSmp : sampler;
+
+var<private> DISK : array<vec2f, 16> = array<vec2f, 16>(
+  vec2f(-0.94201624, -0.39906216), vec2f(0.94558609, -0.76890725), vec2f(-0.09418410, -0.92938870), vec2f(0.34495938, 0.29387760),
+  vec2f(-0.91588581, 0.45771432), vec2f(-0.81544232, -0.87912464), vec2f(-0.38277543, 0.27676845), vec2f(0.97484398, 0.75648379),
+  vec2f(0.44323325, -0.97511554), vec2f(0.53742981, -0.47373420), vec2f(-0.26496911, -0.41893023), vec2f(0.79197514, 0.19090188),
+  vec2f(-0.24188840, 0.99706507), vec2f(-0.81409955, 0.91437590), vec2f(0.19984126, 0.78641367), vec2f(0.14383161, -0.14100790));
+
+fn rot2(v : vec2f, cs : vec2f) -> vec2f { return vec2f(v.x * cs.x - v.y * cs.y, v.x * cs.y + v.y * cs.x); }
+
+// Percentage-closer soft shadow from the key softbox (contact-hardening).
+fn keyVisibility(p : vec3f, cs : vec2f) -> f32 {
+  let lp = U.lightViewProj * vec4f(p, 1.0);
+  let uv = lp.xy * vec2f(0.5, -0.5) + 0.5;
+  let z = lp.z;
+  if (uv.x <= 0.0 || uv.y <= 0.0 || uv.x >= 1.0 || uv.y >= 1.0 || z >= 1.0) { return 1.0; }
+  let dims = vec2f(textureDimensions(shadowTex));
+  var bsum = 0.0;
+  var bcnt = 0.0;
+  for (var i = 0; i < 16; i++) {
+    let o = rot2(DISK[i], cs) * 16.0;
+    let tc = vec2i(clamp(uv * dims + o, vec2f(0.0), dims - 1.0));
+    let d = textureLoad(shadowTex, tc, 0);
+    if (d < z - 0.0015) { bsum += d; bcnt += 1.0; }
+  }
+  if (bcnt < 0.5) { return 1.0; }
+  let gap = (z - bsum / bcnt) * U.shadowInfo.y;
+  let pen = clamp(gap * U.shadowInfo.z, 1.0, 30.0);
+  var vis = 0.0;
+  for (var i = 0; i < 16; i++) {
+    let o = rot2(DISK[i], cs) * pen / dims;
+    vis += textureSampleCompareLevel(shadowTex, shadowSmp, uv + o, z - 0.001);
+  }
+  return vis / 16.0;
+}
+
+// Ambient occlusion on the floor from a height map rendered from below.
+fn contactAO(p : vec3f, cs : vec2f) -> f32 {
+  let ap = U.aoViewProj * vec4f(p, 1.0);
+  let uv = ap.xy * vec2f(0.5, -0.5) + 0.5;
+  if (uv.x <= 0.0 || uv.y <= 0.0 || uv.x >= 1.0 || uv.y >= 1.0) { return 1.0; }
+  let r = 0.3 / (2.0 * U.aoRect.z);
+  var occ = 0.0;
+  var wsum = 0.0;
+  for (var i = 0; i < 16; i++) {
+    let o = rot2(DISK[i], cs);
+    let dl = length(o);
+    let hgt = textureSampleLevel(aoTex, linSmp, uv + o * r, 0.0).r;
+    let wt = 1.0 - 0.55 * dl;
+    occ += wt * (1.0 - smoothstep(0.0, 0.05 + 0.42 * dl, hgt));
+    wsum += wt;
+  }
+  let cen = textureSampleLevel(aoTex, linSmp, uv, 0.0).r;
+  let tight = 1.0 - smoothstep(0.0, 0.05, cen);
+  return clamp(1.0 - 0.72 * occ / wsum - 0.22 * tight, 0.0, 1.0);
+}
+
+@fragment fn fs_bg(@builtin(position) fc : vec4f) -> @location(0) vec4f {
+  let ndc = vec2f(fc.x * U.viewport.z * 2.0 - 1.0, 1.0 - fc.y * U.viewport.w * 2.0);
+  let a4 = U.invViewProj * vec4f(ndc, 0.0, 1.0);
+  let b4 = U.invViewProj * vec4f(ndc, 1.0, 1.0);
+  let ro = U.camPos.xyz;
+  let rd = normalize(b4.xyz / b4.w - a4.xyz / a4.w);
+  var col = backdrop(rd);
+  var dist = 10000.0;
+  if (rd.y < -0.0001) {
+    let t = -ro.y / rd.y;
+    let p = ro + rd * t;
+    let ang = ign(fc.xy) * 6.2831853;
+    let cs = vec2f(cos(ang), sin(ang));
+    let near = length(p.xz - U.aoRect.xy);
+    var vis = 1.0;
+    var ao = 1.0;
+    if (near < 2.6) {
+      vis = keyVisibility(p, cs);
+      ao = contactAO(p, cs);
+    }
+    // light that passes through the jelly tints its shadow
+    let keyT = mix(Mt.shadow.rgb * Mt.shadow.w, vec3f(1.0), vis);
+    let spot = 1.0 - 0.1 * smoothstep(0.8, 5.5, near);
+    let lit = vec3f(0.80, 0.79, 0.77) * (vec3f(0.43, 0.428, 0.42) * ao + vec3f(0.56, 0.55, 0.53) * keyT) * spot;
+    col = mix(lit, col, smoothstep(3.5, 12.0, t));
+    dist = t;
+  }
+  return vec4f(col, dist);
+}
+`;
+
+const WGSL_INST = /* wgsl */`
+struct Inst { m0 : vec4f, m1 : vec4f, m2 : vec4f, pos : vec4f };
+@group(1) @binding(0) var<storage, read> insts : array<Inst>;
+
+struct IOut {
+  @builtin(position) clip : vec4f,
+  @location(0) wpos : vec3f,
+  @location(1) nrm : vec3f,
+  @location(2) lpos : vec3f,
+  @location(3) @interpolate(flat) kind : u32,
+};
+
+@vertex fn vs_inst(@location(0) p : vec3f, @location(1) n : vec3f, @builtin(instance_index) ii : u32) -> IOut {
+  let I = insts[ii];
+  let M = mat3x3f(I.m0.xyz, I.m1.xyz, I.m2.xyz);
+  let wp = I.pos.xyz + M * p;
+  let cof = mat3x3f(cross(M[1], M[2]), cross(M[2], M[0]), cross(M[0], M[1]));
+  var o : IOut;
+  o.clip = U.viewProj * vec4f(wp, 1.0);
+  o.wpos = wp;
+  o.nrm = cof * n;
+  o.lpos = p;
+  o.kind = u32(I.pos.w + 0.5);
+  return o;
+}
+
+@fragment fn fs_inst(v : IOut) -> @location(0) vec4f {
+  let V = normalize(U.camPos.xyz - v.wpos);
+  let N = normalize(v.nrm);
+  let L = normalize(U.keyDir.xyz);
+  let ndv = max(dot(N, V), 0.0);
+  let ndl = dot(N, L);
+  var col : vec3f;
+  if (v.kind == 2u) {
+    // an air bubble: clear core, dark refracting rim, pinpoint highlight
+    // an air pocket: the core shows the jelly behind it (so it is tinted like the body),
+    // the rim is a thin silvery ring (total internal reflection), plus a pinpoint glint
+    let rim = 1.0 - ndv;
+    let ext = Mt.absorb.rgb * Mt.absorb.w + vec3f(Mt.scatter.w);
+    let core = vec3f(0.62, 0.6, 0.58) * exp(-ext * 0.22) + Mt.scatter.rgb * (1.0 - exp(-Mt.scatter.w * 0.22)) * 0.9;
+    col = mix(core * 1.35, vec3f(0.85, 0.84, 0.82) + studio(reflect(-V, N)) * 0.35, smoothstep(0.6, 0.97, rim));
+    col += vec3f(pow(max(dot(N, normalize(L + V)), 0.0), 24.0) * 2.4);
+  } else {
+    var base = Mt.seed.rgb;
+    if (v.kind == 1u) { base = vec3f(0.46, 0.39, 0.28); }
+    // a seed is darkest in the middle with a slightly lighter, brownish margin
+    let edge = smoothstep(0.78, 1.0, length(v.lpos.yz));
+    base = mix(base, base * 2.0 + vec3f(0.02, 0.012, 0.005), edge * select(0.35, 0.15, v.kind == 1u));
+    let diff = base * (irradiance(N) * 0.7 + U.keyDir.w * max(ndl, 0.0) * 0.9);
+    // seen through jelly: the view ray is refracted (never past the ~47° critical angle) and the
+    // seed/jelly interface is low-contrast, so a soft wet sheen rather than an air (chrome) highlight
+    let ndvR = sqrt(1.0 - (1.0 - ndv * ndv) / 1.85);
+    let F = 0.015 + 0.2 * pow(1.0 - ndvR, 5.0);
+    let Hh = normalize(L + V);
+    let spec = pow(max(dot(N, Hh), 0.0), 28.0) * 0.14 * U.keyDir.w * step(0.0, ndl);
+    col = diff * (1.0 - F) + studio(reflect(-V, N)) * F * 0.5 + vec3f(spec);
+  }
+  return vec4f(col, length(U.camPos.xyz - v.wpos));
+}
+`;
+
+const WGSL_JELLY = /* wgsl */`
+@group(1) @binding(0) var sceneTex : texture_2d<f32>;
+@group(1) @binding(1) var backTex : texture_2d<f32>;
+@group(1) @binding(2) var linSmp : sampler;
+
+struct JOut {
+  @builtin(position) clip : vec4f,
+  @location(0) wpos : vec3f,
+  @location(1) nrm : vec3f,
+  @location(2) rest : vec4f,
+};
+
+@vertex fn vs_jelly(@location(0) pos : vec4f, @location(1) nrm : vec4f, @location(2) rest : vec4f) -> JOut {
+  var o : JOut;
+  o.clip = U.viewProj * vec4f(pos.xyz, 1.0);
+  o.wpos = pos.xyz;
+  o.nrm = nrm.xyz;
+  o.rest = rest;
+  return o;
+}
+
+@vertex fn vs_shadow(@location(0) pos : vec4f) -> @builtin(position) vec4f {
+  return U.lightViewProj * vec4f(pos.xyz, 1.0);
+}
+
+struct AOut { @builtin(position) clip : vec4f, @location(0) h : f32 };
+@vertex fn vs_ao(@location(0) pos : vec4f) -> AOut {
+  var o : AOut;
+  o.clip = U.aoViewProj * vec4f(pos.xyz, 1.0);
+  o.h = pos.y;
+  return o;
+}
+@fragment fn fs_ao(v : AOut) -> @location(0) vec4f { return vec4f(max(v.h, 0.0), 0.0, 0.0, 1.0); }
+
+@fragment fn fs_back(v : JOut) -> @location(0) vec4f {
+  return vec4f(length(v.wpos - U.camPos.xyz), 0.0, 0.0, 1.0);
+}
+
+fn ggx(N : vec3f, V : vec3f, L : vec3f, rough : f32) -> f32 {
+  let H = normalize(V + L);
+  let ndh = max(dot(N, H), 0.0);
+  let ndl = max(dot(N, L), 0.0);
+  let ndv = max(dot(N, V), 1e-3);
+  let a = rough * rough;
+  let a2 = a * a;
+  let d = ndh * ndh * (a2 - 1.0) + 1.0;
+  let D = a2 / (PI * d * d);
+  let k = a * 0.5;
+  let G = (ndl / (ndl * (1.0 - k) + k)) * (ndv / (ndv * (1.0 - k) + k));
+  let F = 0.035 + 0.965 * pow(1.0 - max(dot(V, H), 0.0), 5.0);
+  return D * G * F / (4.0 * ndv);
+}
+
+@fragment fn fs_jelly(v : JOut) -> @location(0) vec4f {
+  // ---- material regions from rest-space coordinates (they deform with the body)
+  let rest = v.rest.xyz;
+  let lp = vec2f(rest.x + Mt.geo.w, rest.z);
+  let rho = length(lp);
+  let theta = atan2(lp.y, lp.x);
+  let aa = fwidth(rho) * 1.3 + 1e-4;
+  let R = Mt.geo.x;
+  let n1 = vnoise(vec3f(theta * 16.0, rest.y * 7.0, 1.7));
+  let n2 = vnoise(vec3f(theta * 8.0, rest.y * 5.0, 4.2));
+  let skinEdge = R - Mt.geo.y + (n1 - 0.5) * 0.012;
+  let paleEdge = R - Mt.geo.y - Mt.geo.z + (n2 - 0.5) * 0.034;
+  let wSkin = smoothstep(skinEdge - aa, skinEdge + aa, rho);
+  let wRind = smoothstep(paleEdge - aa - 0.02, paleEdge + aa + 0.004, rho);
+  let wPale = wRind * (1.0 - wSkin);
+  let wFlesh = 1.0 - wRind;
+  let tw = max(wFlesh + wPale, 1e-3);
+  let fW = wFlesh / tw;
+  let pW = wPale / tw;
+
+  // irregular dark-green stripes along the rind
+  let warp = fbm(vec3f(theta * 3.4, rest.y * 2.2, 7.0)) - 0.5;
+  let jag = vnoise(vec3f(theta * 64.0, rest.y * 17.0, 3.0)) - 0.5;
+  let band = 0.5 + 0.5 * sin(theta * 21.0 + warp * 5.5 + rest.y * 1.6) + jag * 0.36;
+  let stripe = smoothstep(0.44, 0.6, band);
+
+  let camPos = U.camPos.xyz;
+  let toCam = camPos - v.wpos;
+  let fragD = length(toCam);
+  let V = toCam / fragD;
+  let bump = vec3f(vnoise(rest * 21.0), vnoise(rest * 21.0 + 11.3), vnoise(rest * 21.0 + 27.1)) - 0.5;
+  let N = normalize(normalize(v.nrm) + bump * mix(0.04, 0.09, wSkin));
+  let ndv = clamp(dot(N, V), 1e-3, 1.0);
+
+  // ---- thickness along the view ray (back faces, or an embedded seed)
+  let pix = vec2i(v.clip.xy);
+  let backD = textureLoad(backTex, pix, 0).r;
+  let sc0 = textureLoad(sceneTex, pix, 0);
+  let backT = select(fragD + 0.06, backD, backD > fragD + 1e-4);
+  let exitD = min(backT, max(sc0.a, fragD + 0.003));
+  let thick = clamp(exitD - fragD, 0.003, 2.5);
+
+  // ---- refraction: look through the jelly at the studio behind it
+  var Tdir = refract(-V, N, 1.0 / 1.36);
+  if (dot(Tdir, Tdir) < 0.25) { Tdir = -V; }
+  let exitP = v.wpos + Tdir * thick;
+  let cp = U.viewProj * vec4f(exitP, 1.0);
+  let uv0 = clamp(cp.xy / max(cp.w, 1e-3) * vec2f(0.5, -0.5) + 0.5, vec2f(0.001), vec2f(0.999));
+  let bl = U.viewport.zw * clamp(thick * 20.0, 0.6, 8.0) * (U.viewport.y / 900.0);
+  let t0 = textureSampleLevel(sceneTex, linSmp, uv0, 0.0);
+  let t1 = textureSampleLevel(sceneTex, linSmp, uv0 + bl * vec2f(1.0, 0.55), 0.0);
+  let t2 = textureSampleLevel(sceneTex, linSmp, uv0 + bl * vec2f(-0.55, 1.0), 0.0);
+  let t3 = textureSampleLevel(sceneTex, linSmp, uv0 + bl * vec2f(-1.0, -0.55), 0.0);
+  let t4 = textureSampleLevel(sceneTex, linSmp, uv0 + bl * vec2f(0.55, -1.0), 0.0);
+  // each refracted tap is absorbed over its own path: to the seed/bubble it lands on, else to the back face
+  // (an off-centre tap may not claim a much shorter path than the centre: no ghost copies of shallow inclusions)
+  let tkc = clamp(min(backT, max(t0.a, fragD + 0.003)) - fragD, 0.003, 2.5);
+  let tk = max(clamp(min(vec4f(backT), max(vec4f(t1.a, t2.a, t3.a, t4.a), vec4f(fragD + 0.003))) - fragD, vec4f(0.003), vec4f(2.5)), vec4f(0.8 * tkc));
+  let thickB = clamp(backT - fragD, 0.003, 2.5);
+
+  // ---- volume: absorption (Beer–Lambert) + in-scattering, with internal detail
+  let heart = 1.0 - smoothstep(0.1, 0.92, rho / R);
+  let grain = fbm(rest * 8.0);
+  let fib = vnoise(vec3f(rho * 6.0, theta * 44.0, rest.y * 5.0));
+  let deep = fbm(rest * 3.1 + Tdir * min(thick, 0.3) * 1.5);
+  let dens = Mt.absorb.w * (0.7 + 0.6 * heart) * (0.84 + 0.32 * grain) * (0.9 + 0.2 * fib) * (0.9 + 0.2 * deep);
+  let sigA = Mt.absorb.rgb * dens * fW + vec3f(0.55, 0.42, 1.1) * Mt.pale.w * pW;
+  let sigS = Mt.scatter.w * (0.8 + 0.4 * grain) * fW + 7.5 * pW;
+  let ext = sigA + vec3f(sigS);
+  let bgT = t0.rgb * exp(-ext * tkc) * 0.28
+          + (t1.rgb * exp(-ext * tk.x) + t2.rgb * exp(-ext * tk.y) + t3.rgb * exp(-ext * tk.z) + t4.rgb * exp(-ext * tk.w)) * 0.18;
+  // light diffuses sideways through the flesh, so even the film over a shallow seed glows a little
+  let scatAmt = 1.0 - exp(-sigS * max(tkc, 0.05));
+  let selfAtt = exp(-sigA * max(tkc, 0.05) * 0.3);
+
+  let L = normalize(U.keyDir.xyz);
+  let keyI = U.keyDir.w;
+  let ndl = dot(N, L);
+  let back = pow(max(dot(-V, L), 0.0), 3.0);
+  let wrap = max(ndl + 0.45, 0.0) / 1.45;
+  let amb = irradiance(N);
+  let lightIn = amb * 0.85 + keyI * (0.55 * wrap + 1.2 * back);
+  // the white rind is creamy next to the flesh and turns celery-green toward the skin
+  let paleCol = Mt.pale.rgb * mix(vec3f(1.05, 0.97, 0.93), vec3f(0.8, 1.0, 0.66), smoothstep(paleEdge + 0.01, skinEdge, rho));
+  let albedo = Mt.scatter.rgb * fW + paleCol * pW;
+  var body = bgT + albedo * scatAmt * selfAtt * lightIn;
+  // soft light transmitted through thin edges
+  let thinG = exp(-thickB * 5.0) * (1.0 - exp(-thickB * 45.0));
+  body += Mt.glow.rgb * Mt.glow.w * fW * keyI * (0.3 + 1.5 * back) * thinG;
+  // a faint milky seam where flesh meets rind
+  body += Mt.pale.rgb * 0.08 * wPale * (1.0 - wPale) * 4.0 * amb;
+
+  // ---- glossy green rind (dense, nearly opaque)
+  let mottle = vnoise(vec3f(theta * 110.0, rest.y * 110.0, 5.0)) * 0.6 + vnoise(vec3f(theta * 26.0, rest.y * 26.0, 9.0)) * 0.4;
+  let skinBase = mix(Mt.skinA.rgb, Mt.skinB.rgb, stripe) * (0.82 + 0.3 * mottle);
+  let skinCol = skinBase * (amb * 0.8 + keyI * max(ndl, 0.0) * 0.8) + skinBase * keyI * back * 0.3;
+  let baseCol = mix(body, skinCol, wSkin);
+
+  // ---- surface: Fresnel reflection of the studio + GGX highlight
+  let F = 0.035 + 0.965 * pow(1.0 - ndv, 5.0);
+  let env = studio(reflect(-V, N));
+  let rough = mix(0.085, 0.2, wSkin);
+  let spec = min(ggx(N, V, L, rough) * keyI, 6.0);
+  let col = baseCol * (1.0 - F) + env * F * mix(1.0, 0.75, wSkin) + spec * vec3f(1.0, 0.98, 0.95);
+  return vec4f(col, 1.0);
+}
+`;
+
+const WGSL_LINES = /* wgsl */`
+struct LOut { @builtin(position) clip : vec4f, @location(0) fade : f32 };
+@vertex fn vs_line(@location(0) p : vec4f) -> LOut {
+  var o : LOut;
+  o.clip = U.viewProj * vec4f(p.xyz, 1.0);
+  let dc = length(U.camPos.xyz - vec3f(U.aoRect.x, 0.18, U.aoRect.y));   // distance to the slice centre
+  o.fade = clamp((length(U.camPos.xyz - p.xyz) - dc + 0.5) / 1.0, 0.0, 1.0);
+  return o;
+}
+@fragment fn fs_line(v : LOut) -> @location(0) vec4f { return vec4f(0.04, 0.04, 0.05, mix(0.72, 0.1, v.fade)); }
+`;
+
+const WGSL_POST = /* wgsl */`
+@group(1) @binding(0) var srcTex : texture_2d<f32>;
+@group(1) @binding(1) var srcSmp : sampler;
+
+@fragment fn fs_copy(@builtin(position) fc : vec4f) -> @location(0) vec4f {
+  return textureLoad(srcTex, vec2i(fc.xy), 0);
+}
+
+// Khronos PBR Neutral: keeps base colours honest, rolls highlights off gently.
+fn pbrNeutral(color : vec3f) -> vec3f {
+  let startCompression = 0.8 - 0.04;
+  let desaturation = 0.15;
+  let x = min(color.r, min(color.g, color.b));
+  let offset = select(0.04, x - 6.25 * x * x, x < 0.08);
+  var c = color - offset;
+  let peak = max(c.r, max(c.g, c.b));
+  if (peak < startCompression) { return c; }
+  let d = 1.0 - startCompression;
+  let newPeak = 1.0 - d * d / (peak + d - startCompression);
+  c = c * (newPeak / peak);
+  let g = 1.0 - 1.0 / (desaturation * (peak - newPeak) + 1.0);
+  return mix(c, vec3f(newPeak), g);
+}
+fn toSrgb(c : vec3f) -> vec3f {
+  return select(1.055 * pow(c, vec3f(1.0 / 2.4)) - 0.055, c * 12.92, c <= vec3f(0.0031308));
+}
+@fragment fn fs_post(@builtin(position) fc : vec4f) -> @location(0) vec4f {
+  let c = textureLoad(srcTex, vec2i(fc.xy), 0).rgb * U.misc.y;
+  var s = toSrgb(clamp(pbrNeutral(max(c, vec3f(0.0))), vec3f(0.0), vec3f(1.0)));
+  s += (ign(fc.xy) - 0.5) / 255.0;
+  return vec4f(s, 1.0);
+}
+`;
+
+const WGSL_COMPUTE = /* wgsl */`
+struct Node { pos : vec4f, f0 : vec4f, f1 : vec4f, f2 : vec4f };
+struct Skin { i0 : vec4u, i1 : vec4u, w0 : vec4f, w1 : vec4f, rest : vec4f };
+struct RVert { pos : vec4f, nrm : vec4f };
+struct InstIn { i0 : vec4u, i1 : vec4u, w0 : vec4f, w1 : vec4f, rest : vec4f, l0 : vec4f, l1 : vec4f, l2 : vec4f };
+struct InstOut { m0 : vec4f, m1 : vec4f, m2 : vec4f, pos : vec4f };
+struct Counts { nVerts : u32, nInst : u32, nNodes : u32, pad : u32 };
+
+@group(0) @binding(0) var<storage, read> nodes : array<Node>;
+@group(0) @binding(1) var<storage, read> nodeRest : array<vec4f>;
+@group(0) @binding(2) var<uniform> counts : Counts;
+
+fn embed(ni : u32, w : f32, X : vec3f) -> vec3f {
+  let n = nodes[ni];
+  let d = X - nodeRest[ni].xyz;
+  return w * (n.pos.xyz + n.f0.xyz * d.x + n.f1.xyz * d.y + n.f2.xyz * d.z);
+}
+fn embed8(i0 : vec4u, i1 : vec4u, w0 : vec4f, w1 : vec4f, X : vec3f) -> vec3f {
+  return embed(i0.x, w0.x, X) + embed(i0.y, w0.y, X) + embed(i0.z, w0.z, X) + embed(i0.w, w0.w, X)
+       + embed(i1.x, w1.x, X) + embed(i1.y, w1.y, X) + embed(i1.z, w1.z, X) + embed(i1.w, w1.w, X);
+}
+fn fmat(ni : u32, w : f32) -> mat3x3f {
+  let n = nodes[ni];
+  return mat3x3f(n.f0.xyz, n.f1.xyz, n.f2.xyz) * w;
+}
+`;
+
+const WGSL_COMP_SURFACE = /* wgsl */`
+@group(1) @binding(0) var<storage, read> skin : array<Skin>;
+@group(1) @binding(1) var<storage, read_write> verts : array<RVert>;
+@group(1) @binding(2) var<storage, read> tris : array<u32>;
+@group(1) @binding(3) var<storage, read> adjOff : array<u32>;
+@group(1) @binding(4) var<storage, read> adjTri : array<u32>;
+
+@compute @workgroup_size(64) fn cs_skin(@builtin(global_invocation_id) gid : vec3u) {
+  let i = gid.x;
+  if (i >= counts.nVerts) { return; }
+  let s = skin[i];
+  verts[i].pos = vec4f(embed8(s.i0, s.i1, s.w0, s.w1, s.rest.xyz), 1.0);
+}
+
+@compute @workgroup_size(64) fn cs_normals(@builtin(global_invocation_id) gid : vec3u) {
+  let i = gid.x;
+  if (i >= counts.nVerts) { return; }
+  var n = vec3f(0.0);
+  let a0 = adjOff[i];
+  let a1 = adjOff[i + 1u];
+  for (var k = a0; k < a1; k++) {
+    let t = adjTri[k] * 3u;
+    let p0 = verts[tris[t]].pos.xyz;
+    let p1 = verts[tris[t + 1u]].pos.xyz;
+    let p2 = verts[tris[t + 2u]].pos.xyz;
+    n += cross(p1 - p0, p2 - p0);
+  }
+  let l = length(n);
+  verts[i].nrm = vec4f(select(vec3f(0.0, 1.0, 0.0), n / l, l > 1e-12), 0.0);
+}
+`;
+
+const WGSL_COMP_INST = /* wgsl */`
+@group(1) @binding(0) var<storage, read> instIn : array<InstIn>;
+@group(1) @binding(1) var<storage, read_write> instOut : array<InstOut>;
+
+// Seeds and bubbles: position from the embedding, orientation from the polar
+// decomposition of the blended deformation gradient (rotation only — seeds stay rigid).
+@compute @workgroup_size(64) fn cs_inst(@builtin(global_invocation_id) gid : vec3u) {
+  let i = gid.x;
+  if (i >= counts.nInst) { return; }
+  let s = instIn[i];
+  let p = embed8(s.i0, s.i1, s.w0, s.w1, s.rest.xyz);
+  var A = fmat(s.i0.x, s.w0.x) + fmat(s.i0.y, s.w0.y) + fmat(s.i0.z, s.w0.z) + fmat(s.i0.w, s.w0.w)
+        + fmat(s.i1.x, s.w1.x) + fmat(s.i1.y, s.w1.y) + fmat(s.i1.z, s.w1.z) + fmat(s.i1.w, s.w1.w);
+  var Rm = A;
+  for (var k = 0; k < 10; k++) {
+    let c = mat3x3f(cross(Rm[1], Rm[2]), cross(Rm[2], Rm[0]), cross(Rm[0], Rm[1]));
+    let d = dot(Rm[0], c[0]);
+    if (abs(d) < 1e-8) { break; }
+    Rm = (Rm + c * (1.0 / d)) * 0.5;
+  }
+  let M = Rm * mat3x3f(s.l0.xyz, s.l1.xyz, s.l2.xyz);
+  instOut[i] = InstOut(vec4f(M[0], 0.0), vec4f(M[1], 0.0), vec4f(M[2], 0.0), vec4f(p, s.rest.w));
+}
+`;
+
+// --------------------------------------------------------- colour presets
+// Linear-light values.  absorb.w = density, scatter.w = scattering density,
+// glow.w = thin-edge glow, pale.w = pale-layer absorption, shadow.w = transmission.
+const PRESETS = [
+  { // Crimson Sweet — ruby red
+    absorb: [0.34, 6.2, 5.2, 1.25], scatter: [0.56, 0.016, 0.028, 2.5], glow: [1.0, 0.12, 0.1, 0.9],
+    pale: [0.66, 0.72, 0.52, 0.6], skinA: [0.13, 0.30, 0.055, 0], skinB: [0.012, 0.055, 0.016, 0],
+    seed: [0.016, 0.010, 0.007, 0], shadow: [1.0, 0.12, 0.14, 0.26],
+  },
+  { // Tendersweet — apricot orange
+    absorb: [0.2, 1.45, 5.6, 1.0], scatter: [0.78, 0.2, 0.025, 2.4], glow: [1.0, 0.42, 0.08, 0.95],
+    pale: [0.70, 0.72, 0.52, 0.6], skinA: [0.17, 0.34, 0.07, 0], skinB: [0.02, 0.07, 0.02, 0],
+    seed: [0.03, 0.017, 0.009, 0], shadow: [1.0, 0.4, 0.13, 0.3],
+  },
+  { // Yellow Doll — golden
+    absorb: [0.09, 0.3, 4.8, 1.0], scatter: [0.8, 0.56, 0.04, 2.3], glow: [1.0, 0.8, 0.18, 0.95],
+    pale: [0.70, 0.74, 0.55, 0.6], skinA: [0.10, 0.25, 0.05, 0], skinB: [0.008, 0.045, 0.013, 0],
+    seed: [0.02, 0.012, 0.008, 0], shadow: [1.0, 0.72, 0.2, 0.32],
+  },
+];
+const MAT_KEYS = ['absorb', 'scatter', 'glow', 'pale', 'skinA', 'skinB', 'seed', 'shadow'];
+
+// ================================================================== main
+async function main() {
+  if (!navigator.gpu) {
+    fail(isSecureContext
+      ? 'This browser does not expose WebGPU (navigator.gpu is missing).'
+      : 'WebGPU is only available in a secure context (https:// or localhost), and this page is not one.');
+    return;
+  }
+  let adapter = null;
+  try { adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }); } catch (e) { /* handled below */ }
+  if (!adapter) { fail('WebGPU is present, but no compatible GPU adapter was offered — it may be disabled or blocklisted on this device.'); return; }
+  let device;
+  try { device = await adapter.requestDevice({ label: 'melon-jelly' }); }
+  catch (e) { fail('The GPU adapter could not create a device: ' + (e && e.message ? e.message : e), e); return; }
+
+  let running = true;
+  device.addEventListener('uncapturederror', (ev) => {
+    const msg = ev.error && ev.error.message ? ev.error.message : String(ev.error);
+    if (hooks.errors.length < 50) hooks.errors.push(msg);
+    console.error('[WebGPU]', msg);
+  });
+  device.lost.then((info) => {
+    running = false;
+    if (info.reason === 'destroyed') return;
+    fail('The GPU device was lost (' + (info.message || info.reason) + '). Reload the page to start again.');
+  });
+
+  const ctx = canvas.getContext('webgpu');
+  if (!ctx) { fail('The browser could not create a WebGPU canvas context.'); return; }
+  const format = navigator.gpu.getPreferredCanvasFormat();
+  ctx.configure({ device, format, alphaMode: 'opaque' });
+
+  // ---------------------------------------------------------- geometry (once)
+  const sim = new Core.Sim(C);
+  const rmesh = Core.buildRenderMesh(C);
+  const nVerts = rmesh.count;
+  const skinW = Core.computeSkin(sim.rest, sim.n, rmesh.positions, nVerts, 8);
+  const adj = Core.buildAdjacency(rmesh.indices, nVerts);
+  const inst = Core.buildInstances(C);
+  const nInst = inst.list.length;
+  const instPts = new Float64Array(nInst * 3);
+  inst.list.forEach((q, i) => instPts.set(q.c, 3 * i));
+  const instW = Core.computeSkin(sim.rest, sim.n, instPts, nInst, 8);
+  const seedMesh = Core.buildBlobMesh(20, 14, 0.24);
+  const blobMesh = Core.buildBlobMesh(12, 10, 0);
+
+  $('nTets').textContent = String(sim.nt);
+  $('nVerts').textContent = nVerts.toLocaleString('en-US');
+  $('nSeeds').textContent = String(inst.list.filter((q) => q.kind === 0).length);
+  $('roMass').textContent = Math.round(sim.restMass * 1050).toString();
+  const KE_MJ = 10.5 * sim.restMass / sim.totalMass;   // sim units → mJ at 10 cm, 1.05 g/cm³ (physical mass)
+
+  // ---------------------------------------------------------- GPU buffers
+  const U_ = GPUBufferUsage;
+  const mkBuf = (data, usage, label) => {
+    const b = device.createBuffer({ label, size: Math.max(16, Math.ceil(data.byteLength / 4) * 4), usage: usage | U_.COPY_DST });
+    device.queue.writeBuffer(b, 0, data);
+    return b;
+  };
+  const nodeData = new Float32Array(sim.n * 16);
+  const nodeBuf = device.createBuffer({ label: 'nodes', size: nodeData.byteLength, usage: U_.STORAGE | U_.VERTEX | U_.COPY_DST });
+  const nodeRestData = new Float32Array(sim.n * 4);
+  for (let i = 0; i < sim.n; i++) nodeRestData.set([sim.rest[3 * i], sim.rest[3 * i + 1], sim.rest[3 * i + 2], 1], 4 * i);
+  const nodeRestBuf = mkBuf(nodeRestData, U_.STORAGE, 'nodeRest');
+
+  const skinAB = new ArrayBuffer(nVerts * 80), skinU = new Uint32Array(skinAB), skinF = new Float32Array(skinAB);
+  const restAttr = new Float32Array(nVerts * 4);
+  for (let i = 0; i < nVerts; i++) {
+    const b = 20 * i;
+    for (let k = 0; k < 8; k++) { skinU[b + k] = skinW.idx[8 * i + k]; skinF[b + 8 + k] = skinW.wt[8 * i + k]; }
+    skinF[b + 16] = rmesh.positions[3 * i]; skinF[b + 17] = rmesh.positions[3 * i + 1]; skinF[b + 18] = rmesh.positions[3 * i + 2];
+    restAttr.set([rmesh.positions[3 * i], rmesh.positions[3 * i + 1], rmesh.positions[3 * i + 2], rmesh.region[i]], 4 * i);
+  }
+  const skinBuf = mkBuf(skinAB, U_.STORAGE, 'skin');
+  const restBuf = mkBuf(restAttr, U_.VERTEX, 'restAttr');
+  const vertBuf = device.createBuffer({ label: 'verts', size: nVerts * 32, usage: U_.STORAGE | U_.VERTEX | U_.COPY_SRC });
+  const idxBuf = mkBuf(rmesh.indices, U_.INDEX | U_.STORAGE, 'indices');
+  const adjOffBuf = mkBuf(adj.off, U_.STORAGE, 'adjOff');
+  const adjTriBuf = mkBuf(adj.list, U_.STORAGE, 'adjTri');
+  const countsBuf = mkBuf(new Uint32Array([nVerts, nInst, sim.n, 0]), U_.UNIFORM, 'counts');
+
+  const instAB = new ArrayBuffer(nInst * 128), instU = new Uint32Array(instAB), instF = new Float32Array(instAB);
+  inst.list.forEach((q, i) => {
+    const b = 32 * i;
+    for (let k = 0; k < 8; k++) { instU[b + k] = instW.idx[8 * i + k]; instF[b + 8 + k] = instW.wt[8 * i + k]; }
+    instF.set([q.c[0], q.c[1], q.c[2], q.kind], b + 16);
+    instF.set([q.L[0], q.L[1], q.L[2], 0, q.L[3], q.L[4], q.L[5], 0, q.L[6], q.L[7], q.L[8], 0], b + 20);
+  });
+  const instInBuf = mkBuf(instAB, U_.STORAGE, 'instIn');
+  const instOutBuf = device.createBuffer({ label: 'instOut', size: nInst * 64, usage: U_.STORAGE | U_.COPY_SRC });
+  const seedVB = mkBuf(seedMesh.vb, U_.VERTEX, 'seedVB');
+  const seedIB = mkBuf(seedMesh.ib.length % 2 ? Uint16Array.from([...seedMesh.ib, 0]) : seedMesh.ib, U_.INDEX, 'seedIB');
+  const blobVB = mkBuf(blobMesh.vb, U_.VERTEX, 'blobVB');
+  const blobIB = mkBuf(blobMesh.ib.length % 2 ? Uint16Array.from([...blobMesh.ib, 0]) : blobMesh.ib, U_.INDEX, 'blobIB');
+  const edgeIB = mkBuf(sim.edges, U_.INDEX, 'edges');
+
+  const frameData = new Float32Array(88);
+  const frameBuf = device.createBuffer({ label: 'frame', size: frameData.byteLength, usage: U_.UNIFORM | U_.COPY_DST });
+  const matData = new Float32Array(40);
+  const matBuf = device.createBuffer({ label: 'material', size: matData.byteLength, usage: U_.UNIFORM | U_.COPY_DST });
+
+  // ---------------------------------------------------------- pipelines (all compiled up front)
+  const HDR = 'rgba16float', DEPTH = 'depth24plus', MS = 4, SHADOW = 1024, AOS = 256;
+  device.pushErrorScope('validation');
+  const mod = (code, label) => device.createShaderModule({ label, code });
+  const modules = {
+    bg: mod(WGSL_COMMON + WGSL_BG, 'bg'),
+    inst: mod(WGSL_COMMON + WGSL_INST, 'inst'),
+    jelly: mod(WGSL_COMMON + WGSL_JELLY, 'jelly'),
+    lines: mod(WGSL_COMMON + WGSL_LINES, 'lines'),
+    post: mod(WGSL_COMMON + WGSL_POST, 'post'),
+    compSurface: mod(WGSL_COMPUTE + WGSL_COMP_SURFACE, 'compute-surface'),
+    compInst: mod(WGSL_COMPUTE + WGSL_COMP_INST, 'compute-instances'),
+  };
+  for (const [name, m] of Object.entries(modules)) {
+    if (!m.getCompilationInfo) continue;
+    const info = await m.getCompilationInfo();
+    const errs = info.messages.filter((x) => x.type === 'error');
+    if (errs.length) throw new Error(`WGSL (${name}) failed to compile: ` + errs.map((x) => `${x.lineNum}:${x.linePos} ${x.message}`).join(' | '));
+  }
+  const V = GPUShaderStage.VERTEX, FR = GPUShaderStage.FRAGMENT, CO = GPUShaderStage.COMPUTE;
+  const bglFrame = device.createBindGroupLayout({ label: 'frame', entries: [
+    { binding: 0, visibility: V | FR, buffer: { type: 'uniform' } },
+    { binding: 1, visibility: V | FR, buffer: { type: 'uniform' } },
+  ] });
+  const bglBg = device.createBindGroupLayout({ label: 'bg', entries: [
+    { binding: 0, visibility: FR, texture: { sampleType: 'depth' } },
+    { binding: 1, visibility: FR, sampler: { type: 'comparison' } },
+    { binding: 2, visibility: FR, texture: { sampleType: 'float' } },
+    { binding: 3, visibility: FR, sampler: { type: 'filtering' } },
+  ] });
+  const bglInst = device.createBindGroupLayout({ label: 'inst', entries: [
+    { binding: 0, visibility: V, buffer: { type: 'read-only-storage' } },
+  ] });
+  const bglJelly = device.createBindGroupLayout({ label: 'jelly', entries: [
+    { binding: 0, visibility: FR, texture: { sampleType: 'float' } },
+    { binding: 1, visibility: FR, texture: { sampleType: 'unfilterable-float' } },
+    { binding: 2, visibility: FR, sampler: { type: 'filtering' } },
+  ] });
+  const bglTex = device.createBindGroupLayout({ label: 'tex', entries: [
+    { binding: 0, visibility: FR, texture: { sampleType: 'float' } },
+    { binding: 1, visibility: FR, sampler: { type: 'filtering' } },
+  ] });
+  // compute: group 0 = lattice (shared), group 1 = surface or instances (≤ 7 storage buffers per pipeline)
+  const bglComp0 = device.createBindGroupLayout({ label: 'lattice', entries: [
+    { binding: 0, visibility: CO, buffer: { type: 'read-only-storage' } },
+    { binding: 1, visibility: CO, buffer: { type: 'read-only-storage' } },
+    { binding: 2, visibility: CO, buffer: { type: 'uniform' } },
+  ] });
+  const bglSurf = device.createBindGroupLayout({ label: 'surface', entries: [
+    { binding: 0, visibility: CO, buffer: { type: 'read-only-storage' } },
+    { binding: 1, visibility: CO, buffer: { type: 'storage' } },
+    { binding: 2, visibility: CO, buffer: { type: 'read-only-storage' } },
+    { binding: 3, visibility: CO, buffer: { type: 'read-only-storage' } },
+    { binding: 4, visibility: CO, buffer: { type: 'read-only-storage' } },
+  ] });
+  const bglComp1 = device.createBindGroupLayout({ label: 'instances', entries: [
+    { binding: 0, visibility: CO, buffer: { type: 'read-only-storage' } },
+    { binding: 1, visibility: CO, buffer: { type: 'storage' } },
+  ] });
+  const layout = (...g) => device.createPipelineLayout({ bindGroupLayouts: g });
+  const jellyVB = [
+    { arrayStride: 32, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x4' }, { shaderLocation: 1, offset: 16, format: 'float32x4' }] },
+    { arrayStride: 16, attributes: [{ shaderLocation: 2, offset: 0, format: 'float32x4' }] },
+  ];
+  const posVB = [{ arrayStride: 32, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x4' }] }];
+  const blobVBL = [{ arrayStride: 24, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }] }];
+  const msaa = { count: MS };
+  const noDepth = { format: DEPTH, depthWriteEnabled: false, depthCompare: 'always' };
+  const lessDepth = { format: DEPTH, depthWriteEnabled: true, depthCompare: 'less' };
+
+  const [pBg, pInst, pBack, pCopy, pJelly, pLines, pShadow, pAO, pPost, cSkin, cNorm, cInst] = await Promise.all([
+    device.createRenderPipelineAsync({ label: 'bg', layout: layout(bglFrame, bglBg),
+      vertex: { module: modules.bg, entryPoint: 'vs_full' },
+      fragment: { module: modules.bg, entryPoint: 'fs_bg', targets: [{ format: HDR }] },
+      depthStencil: noDepth, multisample: msaa }),
+    device.createRenderPipelineAsync({ label: 'inst', layout: layout(bglFrame, bglInst),
+      vertex: { module: modules.inst, entryPoint: 'vs_inst', buffers: blobVBL },
+      fragment: { module: modules.inst, entryPoint: 'fs_inst', targets: [{ format: HDR }] },
+      primitive: { cullMode: 'back' }, depthStencil: lessDepth, multisample: msaa }),
+    device.createRenderPipelineAsync({ label: 'back', layout: layout(bglFrame),
+      vertex: { module: modules.jelly, entryPoint: 'vs_jelly', buffers: jellyVB },
+      fragment: { module: modules.jelly, entryPoint: 'fs_back', targets: [{ format: 'r32float' }] },
+      primitive: { cullMode: 'front' }, depthStencil: lessDepth }),
+    device.createRenderPipelineAsync({ label: 'copy', layout: layout(bglFrame, bglTex),
+      vertex: { module: modules.post, entryPoint: 'vs_full' },
+      fragment: { module: modules.post, entryPoint: 'fs_copy', targets: [{ format: HDR }] },
+      depthStencil: noDepth, multisample: msaa }),
+    device.createRenderPipelineAsync({ label: 'jelly', layout: layout(bglFrame, bglJelly),
+      vertex: { module: modules.jelly, entryPoint: 'vs_jelly', buffers: jellyVB },
+      fragment: { module: modules.jelly, entryPoint: 'fs_jelly', targets: [{ format: HDR }] },
+      primitive: { cullMode: 'back' }, depthStencil: lessDepth, multisample: msaa }),
+    device.createRenderPipelineAsync({ label: 'lines', layout: layout(bglFrame),
+      vertex: { module: modules.lines, entryPoint: 'vs_line', buffers: [{ arrayStride: 64, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x4' }] }] },
+      fragment: { module: modules.lines, entryPoint: 'fs_line', targets: [{ format: HDR, blend: {
+        color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } } }] },
+      primitive: { topology: 'line-list' }, depthStencil: noDepth, multisample: msaa }),
+    device.createRenderPipelineAsync({ label: 'shadow', layout: layout(bglFrame),
+      vertex: { module: modules.jelly, entryPoint: 'vs_shadow', buffers: posVB },
+      depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'less' } }),
+    device.createRenderPipelineAsync({ label: 'ao', layout: layout(bglFrame),
+      vertex: { module: modules.jelly, entryPoint: 'vs_ao', buffers: posVB },
+      fragment: { module: modules.jelly, entryPoint: 'fs_ao', targets: [{ format: 'r16float' }] },
+      depthStencil: lessDepth }),
+    device.createRenderPipelineAsync({ label: 'post', layout: layout(bglFrame, bglTex),
+      vertex: { module: modules.post, entryPoint: 'vs_full' },
+      fragment: { module: modules.post, entryPoint: 'fs_post', targets: [{ format }] } }),
+    device.createComputePipelineAsync({ label: 'skin', layout: layout(bglComp0, bglSurf), compute: { module: modules.compSurface, entryPoint: 'cs_skin' } }),
+    device.createComputePipelineAsync({ label: 'normals', layout: layout(bglComp0, bglSurf), compute: { module: modules.compSurface, entryPoint: 'cs_normals' } }),
+    device.createComputePipelineAsync({ label: 'instances', layout: layout(bglComp0, bglComp1), compute: { module: modules.compInst, entryPoint: 'cs_inst' } }),
+  ]);
+  const setupErr = await device.popErrorScope();
+  if (setupErr) throw new Error('WebGPU setup failed: ' + setupErr.message);
+
+  // ---------------------------------------------------------- fixed textures & bind groups
+  const linSmp = device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
+  const cmpSmp = device.createSampler({ compare: 'less-equal', magFilter: 'linear', minFilter: 'linear' });
+  const shadowTex = device.createTexture({ label: 'shadowMap', size: [SHADOW, SHADOW], format: 'depth32float', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+  const aoTex = device.createTexture({ label: 'aoHeight', size: [AOS, AOS], format: 'r16float', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+  const aoDepth = device.createTexture({ label: 'aoDepth', size: [AOS, AOS], format: DEPTH, usage: GPUTextureUsage.RENDER_ATTACHMENT });
+  const shadowView = shadowTex.createView(), aoView = aoTex.createView(), aoDepthView = aoDepth.createView();
+  const bgFrame = device.createBindGroup({ layout: bglFrame, entries: [{ binding: 0, resource: { buffer: frameBuf } }, { binding: 1, resource: { buffer: matBuf } }] });
+  const bgBg = device.createBindGroup({ layout: bglBg, entries: [
+    { binding: 0, resource: shadowView }, { binding: 1, resource: cmpSmp }, { binding: 2, resource: aoView }, { binding: 3, resource: linSmp }] });
+  const bgInst = device.createBindGroup({ layout: bglInst, entries: [{ binding: 0, resource: { buffer: instOutBuf } }] });
+  const bgComp0 = device.createBindGroup({ layout: bglComp0, entries: [
+    { binding: 0, resource: { buffer: nodeBuf } }, { binding: 1, resource: { buffer: nodeRestBuf } },
+    { binding: 2, resource: { buffer: countsBuf } }] });
+  const bgSurf = device.createBindGroup({ layout: bglSurf, entries: [
+    { binding: 0, resource: { buffer: skinBuf } }, { binding: 1, resource: { buffer: vertBuf } },
+    { binding: 2, resource: { buffer: idxBuf } }, { binding: 3, resource: { buffer: adjOffBuf } },
+    { binding: 4, resource: { buffer: adjTriBuf } }] });
+  const bgComp1 = device.createBindGroup({ layout: bglComp1, entries: [
+    { binding: 0, resource: { buffer: instInBuf } }, { binding: 1, resource: { buffer: instOutBuf } }] });
+
+  // ---------------------------------------------------------- size-dependent targets (rebuilt only on resize)
+  let T = null;
+  function makeTargets(w, h) {
+    if (T) for (const t of T.list) t.destroy();
+    const tex = (label, format, usage, sampleCount = 1) => device.createTexture({ label, size: [w, h], format, usage, sampleCount });
+    const RA = GPUTextureUsage.RENDER_ATTACHMENT, TB = GPUTextureUsage.TEXTURE_BINDING;
+    const sceneMS = tex('sceneMS', HDR, RA, MS), sceneRes = tex('scene', HDR, RA | TB);
+    const depthMS = tex('depthMS', DEPTH, RA, MS);
+    const backDist = tex('backDist', 'r32float', RA | TB), backDepth = tex('backDepth', DEPTH, RA);
+    const hdrMS = tex('hdrMS', HDR, RA, MS), hdrRes = tex('hdr', HDR, RA | TB);
+    T = {
+      w, h, list: [sceneMS, sceneRes, depthMS, backDist, backDepth, hdrMS, hdrRes],
+      sceneMS: sceneMS.createView(), sceneRes: sceneRes.createView(), depthMS: depthMS.createView(),
+      backDist: backDist.createView(), backDepth: backDepth.createView(), hdrMS: hdrMS.createView(), hdrRes: hdrRes.createView(),
+    };
+    T.bgJelly = device.createBindGroup({ layout: bglJelly, entries: [{ binding: 0, resource: T.sceneRes }, { binding: 1, resource: T.backDist }, { binding: 2, resource: linSmp }] });
+    T.bgCopy = device.createBindGroup({ layout: bglTex, entries: [{ binding: 0, resource: T.sceneRes }, { binding: 1, resource: linSmp }] });
+    T.bgPost = device.createBindGroup({ layout: bglTex, entries: [{ binding: 0, resource: T.hdrRes }, { binding: 1, resource: linSmp }] });
+    // pass descriptors are reused every frame
+    T.passShadow = { colorAttachments: [], depthStencilAttachment: { view: shadowView, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' } };
+    T.passAO = { colorAttachments: [{ view: aoView, clearValue: { r: 50, g: 0, b: 0, a: 1 }, loadOp: 'clear', storeOp: 'store' }],
+      depthStencilAttachment: { view: aoDepthView, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'discard' } };
+    T.passOpaque = { colorAttachments: [{ view: T.sceneMS, resolveTarget: T.sceneRes, clearValue: { r: 0.8, g: 0.8, b: 0.8, a: 10000 }, loadOp: 'clear', storeOp: 'discard' }],
+      depthStencilAttachment: { view: T.depthMS, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' } };
+    T.passBack = { colorAttachments: [{ view: T.backDist, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }],
+      depthStencilAttachment: { view: T.backDepth, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'discard' } };
+    T.passJelly = { colorAttachments: [{ view: T.hdrMS, resolveTarget: T.hdrRes, clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: 'clear', storeOp: 'discard' }],
+      depthStencilAttachment: { view: T.depthMS, depthLoadOp: 'load', depthStoreOp: 'discard' } };
+    T.passPost = { colorAttachments: [{ view: null, clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: 'clear', storeOp: 'store' }] };
+  }
+
+  // ---------------------------------------------------------- layout-aware camera
+  const DEF_CAM = { yaw: 0.6, pitch: 0.55, dist: 3.5 };
+  const cam = { yaw: DEF_CAM.yaw, pitch: DEF_CAM.pitch, dist: DEF_CAM.dist, yawT: DEF_CAM.yaw, pitchT: DEF_CAM.pitch, distT: DEF_CAM.dist, zoom: 1, zoomT: 1, tx: 0, ty: C.H, tz: 0, eye: [0, 0, 0] };
+  const FIT_R = 0.6;
+  const view = M4.create(), proj = M4.create(), viewProj = M4.create(), invViewProj = M4.create();
+  const lightView = M4.create(), lightProj = M4.create(), lightVP = M4.create();
+  const aoViewM = M4.create(), aoProj = M4.create(), aoVP = M4.create();
+  const KEY = norm3([-0.46, 0.84, -0.56]);
+  let free = { x: 0, y: 0, w: innerWidth, h: innerHeight };
+  const els = { mast: document.querySelector('.masthead'), panel: $('panel'), foot: $('foot'), notes: $('notes'), status: statusEl };
+
+  function computeFreeRect() {
+    const W = innerWidth, H = innerHeight;
+    const rect = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? r : null; };
+    let left = 0, right = W, top = 0, bottom = H;
+    if (mqNarrow.matches) {
+      const m = rect(els.mast), st = rect(els.status);
+      top = Math.max(m ? m.bottom : 0, st ? st.bottom : 0) + 6;
+      const tops = [els.foot, els.panel, els.notes].map(rect).filter(Boolean).map((r) => r.top);
+      if (tops.length) bottom = Math.min(...tops) - 6;
+    } else {
+      const p = rect(els.panel); if (p) right = p.left - 12;
+      const f = rect(els.foot), nt = rect(els.notes);
+      const inColumn = nt && nt.left >= right;              // notes stacked under the panel
+      bottom = Math.min(f ? f.top : H, nt && !inColumn ? nt.top : H) - 10;
+      if (nt && !inColumn && els.notes.open) { right = Math.min(right, nt.left - 12); bottom = (f ? f.top : H) - 10; }
+      const m = rect(els.mast); if (m) top = m.bottom * 0.42;
+      left = Math.min(W * 0.04, 40);
+      if (m && mqShort.matches) {
+        if (m.right + 12 < right - 150) { left = m.right + 12; top = m.top; }   // a column beside the heading
+        else top = m.bottom + 6;                                              // too narrow: under it
+      }
+    }
+    if (bottom - top < 140) { top = Math.max(0, bottom - 140); }
+    return { x: left, y: top, w: Math.max(120, right - left), h: Math.max(120, bottom - top) };
+  }
+
+  function updateCamera(dt, com, grabbing) {
+    const k = reduceMotion ? 1 : 1 - Math.exp(-dt * 9);
+    cam.yaw += (cam.yawT - cam.yaw) * k;
+    cam.pitch += (cam.pitchT - cam.pitch) * k;
+    cam.dist += (cam.distT - cam.dist) * k;
+    if (!grabbing) {
+      const kf = reduceMotion ? 1 : 1 - Math.exp(-dt * 1.6);
+      let fx = com[0], fz = com[2];
+      const fl = Math.hypot(fx, fz), fmax = C.BOUND; if (fl > fmax) { fx *= fmax / fl; fz *= fmax / fl; }
+      cam.tx += (fx - cam.tx) * kf; cam.tz += (fz - cam.tz) * kf;
+      cam.ty += (C.H + 0.4 * Math.max(0, com[1] - C.H) - cam.ty) * kf;
+    }
+    const cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+    cam.eye[0] = cam.tx + cam.dist * cp * Math.sin(cam.yaw);
+    cam.eye[1] = cam.ty + cam.dist * sp;
+    cam.eye[2] = cam.tz + cam.dist * cp * Math.cos(cam.yaw);
+    M4.lookAt(cam.eye, [cam.tx, cam.ty, cam.tz], [0, 1, 0], view);
+    const Wc = canvas.clientWidth || innerWidth, Hc = canvas.clientHeight || innerHeight;
+    cam.zoom += (cam.zoomT - cam.zoom) * k;
+    const rpx = Math.max(70, Math.min(free.w, free.h) * 0.5) * cam.zoom;
+    const fpx = (rpx * cam.dist) / FIT_R;
+    const fovy = Math.min(Math.max(2 * Math.atan(Hc / 2 / fpx), 0.25), 1.4);
+    M4.perspective(fovy, Wc / Hc, 0.05, 60, proj);
+    const ox = (free.x + free.w / 2 - Wc / 2) / (Wc / 2), oy = -(free.y + free.h / 2 - Hc / 2) / (Hc / 2);
+    proj[8] = -ox; proj[9] = -oy;
+    M4.mul(proj, view, viewProj);
+    M4.invert(viewProj, invViewProj);
+  }
+
+  function clientRay(cx, cy) {
+    const r = canvas.getBoundingClientRect();
+    const nx = ((cx - r.left) / r.width) * 2 - 1, ny = 1 - ((cy - r.top) / r.height) * 2;
+    const m = invViewProj;
+    const un = (x, y, z) => {
+      const X = m[0] * x + m[4] * y + m[8] * z + m[12], Y = m[1] * x + m[5] * y + m[9] * z + m[13];
+      const Z = m[2] * x + m[6] * y + m[10] * z + m[14], W = m[3] * x + m[7] * y + m[11] * z + m[15];
+      return [X / W, Y / W, Z / W];
+    };
+    const a = un(nx, ny, 0), b = un(nx, ny, 1);
+    return { o: a, d: norm3([b[0] - a[0], b[1] - a[1], b[2] - a[2]]) };
+  }
+  function worldToClient(x, y, z) {
+    const m = viewProj;
+    const X = m[0] * x + m[4] * y + m[8] * z + m[12], Y = m[1] * x + m[5] * y + m[9] * z + m[13], W = m[3] * x + m[7] * y + m[11] * z + m[15];
+    const r = canvas.getBoundingClientRect();
+    return { x: r.left + (X / W * 0.5 + 0.5) * r.width, y: r.top + (0.5 - Y / W * 0.5) * r.height, behind: W <= 0 };
+  }
+
+  // ---------------------------------------------------------- materials & presets
+  let preset = 0, matFrom = null, matT = 1;
+  const matCur = new Float32Array(32), matTarget = new Float32Array(32);
+  const packPreset = (p, out) => { MAT_KEYS.forEach((k, i) => out.set(p[k], 4 * i)); return out; };
+  packPreset(PRESETS[0], matCur);
+  matData.set([C.R, C.SKIN, C.PALE, sim.uc], 32);
+  matData.set([C.H, C.ALPHA, 0, 0], 36);
+  function writeMaterial() { matData.set(matCur, 0); device.queue.writeBuffer(matBuf, 0, matData); }
+  function setPreset(i) {
+    preset = i;
+    packPreset(PRESETS[i], matTarget);
+    if (reduceMotion) { matCur.set(matTarget); matT = 1; writeMaterial(); return; }
+    matFrom = matCur.slice(); matT = 0;
+  }
+  function stepMaterial(dt) {
+    if (matT >= 1) return;
+    matT = Math.min(1, matT + dt / 0.45);
+    const e = matT * matT * (3 - 2 * matT);
+    for (let i = 0; i < 32; i++) matCur[i] = matFrom[i] + (matTarget[i] - matFrom[i]) * e;
+    writeMaterial();
+  }
+  writeMaterial();
+
+  // ---------------------------------------------------------- resizing
+  // Resolution adapts to the GPU. It is judged by how long the GPU takes per frame (not by
+  // the frame interval, so a 30 Hz display or a power-saving cap is not mistaken for
+  // overload); it never changes while the slice is held, and never climbs back to a scale
+  // that already proved too slow (until the window itself changes size).
+  let renderScale = 1, scaleCeil = 1, upWait = 3, qT = 0, gpuMs = 8, gpuBusy = false, cssW = 0, cssH = 0;
+  let lastDpr = window.devicePixelRatio || 1;
+  function sampleGpu() {
+    if (gpuBusy) return;
+    gpuBusy = true;
+    const t = performance.now();
+    device.queue.onSubmittedWorkDone().then(() => { gpuMs += (performance.now() - t - gpuMs) * 0.2; gpuBusy = false; }, () => { gpuBusy = false; });
+  }
+  function adaptQuality(dt) {
+    if (paused || document.hidden || !(dt > 0) || dt >= 0.1) return;
+    qT += dt;
+    if (drag && drag.mode === 'grab') return;
+    if (gpuMs > 24 && qT > 0.6 && renderScale > 0.6) {
+      scaleCeil = renderScale * 0.97;
+      renderScale = Math.max(0.6, renderScale * 0.88);
+      upWait = Math.min(upWait * 2, 48); qT = 0; gpuMs = 12; resize();
+    } else if (gpuMs < 9 && qT > upWait && renderScale < scaleCeil) {
+      renderScale = Math.min(scaleCeil, renderScale / 0.94); qT = 0; resize();
+    }
+  }
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const cw = canvas.clientWidth || innerWidth, ch = canvas.clientHeight || innerHeight;
+    if (cw !== cssW || ch !== cssH) { cssW = cw; cssH = ch; scaleCeil = 1; upWait = 3; }   // a new window: try full quality again
+    let w = Math.max(1, Math.round(cw * dpr)), h = Math.max(1, Math.round(ch * dpr));
+    const maxPix = mqCoarse.matches ? 2.3e6 : 3.7e6;
+    const s = Math.min(1, Math.sqrt(maxPix / (w * h))) * renderScale;
+    const lim = device.limits.maxTextureDimension2D;
+    w = Math.min(lim, Math.max(1, Math.floor(w * s))); h = Math.min(lim, Math.max(1, Math.floor(h * s)));
+    if (!T || w !== T.w || h !== T.h) { canvas.width = w; canvas.height = h; makeTargets(w, h); }
+    placeNotes();
+    free = computeFreeRect();
+  }
+  // Desktop: the notes open inside the panel's column. If the column is too short for both,
+  // the panel folds to its heading while the notes are open, so nothing lands on the readouts.
+  // Sized whether open or not (and before the toggle renders) so ResizeObserver never loops.
+  function placeNotes(open = els.notes.open) {
+    const body = els.notes.querySelector('.notes-body');
+    body.style.maxHeight = '';
+    document.body.classList.remove('notes-first');
+    if (mqNarrow.matches) return;
+    const nr = els.notes.getBoundingClientRect();
+    const sumH = els.notes.querySelector('summary').getBoundingClientRect().height;
+    const room = () => nr.bottom - sumH - 2 - (els.panel.getBoundingClientRect().bottom + 12);
+    let avail = room();
+    if (avail < 170 && open) { document.body.classList.add('notes-first'); avail = room(); }
+    body.style.maxHeight = Math.max(80, Math.min(420, avail)) + 'px';
+  }
+  new ResizeObserver(resize).observe(canvas);
+  const relayout = () => { placeNotes(); free = computeFreeRect(); };
+  new ResizeObserver(relayout).observe(els.panel);
+  new ResizeObserver(relayout).observe(els.foot);
+  new ResizeObserver(relayout).observe(els.notes);
+  new ResizeObserver(relayout).observe(els.mast);
+  resize();
+
+  // ---------------------------------------------------------- simulation state & controls
+  let paused = false, slow = false, showMesh = false, acc = 0, nudgeKind = 0;
+  const STEP = C.STEP;
+  const rpos = new Float64Array(sim.n * 3);
+  const com = [0, C.H, 0];
+  const firm = $('firm'), damp = $('damp');
+  const syncRange = (el) => el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min)) * 100 + '%');
+  function applyFirmness() { sim.setFirmness(firm.value / 100); $('firmOut').textContent = String(firm.value); syncRange(firm); }
+  function applyDamping() { const d = sim.setDamping(damp.value / 100); $('dampOut').textContent = d.toFixed(d < 10 ? 1 : 0) + ' /s'; syncRange(damp); }
+  if (reduceMotion) damp.value = 65;
+  applyFirmness(); applyDamping();
+  firm.addEventListener('input', applyFirmness);
+  damp.addEventListener('input', applyDamping);
+
+  function doReset() {
+    endDrag();
+    const quiet = reduceMotion;
+    sim.reset(quiet ? 0 : 0.3, quiet ? 0 : 0.09);
+    acc = 0;
+    cam.yawT = DEF_CAM.yaw; cam.pitchT = DEF_CAM.pitch; cam.distT = DEF_CAM.dist; cam.zoomT = 1;
+  }
+  function doNudge() {
+    if (paused) setPaused(false);
+    sim.nudge(nudgeKind++, reduceMotion ? 0.5 : 1);
+  }
+  function setPaused(p) {
+    paused = p;
+    if (p) endDrag();
+    const b = $('pause');
+    b.textContent = p ? 'Resume' : 'Pause';
+    b.setAttribute('aria-pressed', String(p));
+    setStatus('live', p ? 'WEBGPU · LIVE · PAUSED' : 'WEBGPU · LIVE');
+  }
+  $('nudge').addEventListener('click', doNudge);
+  $('reset').addEventListener('click', doReset);
+  $('pause').addEventListener('click', () => setPaused(!paused));
+  $('slow').addEventListener('change', (e) => { slow = e.target.checked; });
+  $('mesh').addEventListener('change', (e) => { showMesh = e.target.checked; });
+  document.querySelectorAll('input[name=preset]').forEach((r) => r.addEventListener('change', () => setPreset(+r.value)));
+  function setSheet(open) {
+    els.panel.classList.toggle('open', open);
+    document.body.classList.toggle('sheet-open', open);
+    $('sheetToggle').setAttribute('aria-expanded', String(open));
+    $('sheetToggle').textContent = open ? 'Close' : 'Controls';
+    if (open && mqNarrow.matches && els.notes.open) els.notes.open = false;   // one drawer at a time on phones
+    relayout();
+  }
+  $('sheetToggle').addEventListener('click', () => setSheet(!els.panel.classList.contains('open')));
+  // settle the layout for the coming state before the details element re-renders
+  els.notes.querySelector('summary').addEventListener('click', () => placeNotes(!els.notes.open));
+  els.notes.addEventListener('toggle', () => {
+    document.body.classList.toggle('notes-open', els.notes.open);
+    if (els.notes.open && mqNarrow.matches && els.panel.classList.contains('open')) setSheet(false);
+    relayout();
+  });
+  mqNarrow.addEventListener('change', () => {
+    if (mqNarrow.matches && els.notes.open && els.panel.classList.contains('open')) setSheet(false);   // e.g. after a rotation
+    relayout();
+  });
+  mqShort.addEventListener('change', relayout);
+  mqReduce.addEventListener('change', (e) => { reduceMotion = e.matches; });
+  // Space pauses (unless a focused control wants it natively); N nudges, R resets.
+  window.addEventListener('keydown', (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+    const inControl = e.target.closest && e.target.closest('input, textarea, select, button, summary');
+    const k = e.key.toLowerCase();
+    if (k === ' ' && !inControl) { e.preventDefault(); setPaused(!paused); }
+    else if (k === 'r') doReset();
+    else if (k === 'n') doNudge();
+  });
+
+  // ---------------------------------------------------------- pointer input (mouse + touch, captured)
+  const pointers = new Map();
+  let drag = null;
+  function pick(cx, cy, pointerType) {
+    const ray = clientRay(cx, cy);
+    const hit = sim.raycast(rpos, ray.o, ray.d);
+    if (hit) return hit;
+    const tol = pointerType === 'touch' ? 28 : pointerType === 'pen' ? 16 : 10;
+    let best = -1, bestD = tol;
+    for (const i of sim.boundaryNodes) {
+      const s = worldToClient(rpos[3 * i], rpos[3 * i + 1], rpos[3 * i + 2]);
+      if (s.behind) continue;
+      const d = Math.hypot(s.x - cx, s.y - cy);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best >= 0 ? [rpos[3 * best], rpos[3 * best + 1], rpos[3 * best + 2]] : null;
+  }
+  function beginGrab(P, e) {
+    const n = norm3([P[0] - cam.eye[0], P[1] - cam.eye[1], P[2] - cam.eye[2]]);
+    sim.beginGrab(P, n, 0.2, 0.1);
+    drag = { mode: 'grab', id: e.pointerId, P, n, twist: 0, twistRef: null, twistBase: 0 };
+    canvas.classList.add('grabbing');
+  }
+  function moveGrab(cx, cy) {
+    const ray = clientRay(cx, cy), n = drag.n;
+    const den = ray.d[0] * n[0] + ray.d[1] * n[1] + ray.d[2] * n[2];
+    if (Math.abs(den) < 1e-4) return;
+    const t = ((drag.P[0] - ray.o[0]) * n[0] + (drag.P[1] - ray.o[1]) * n[1] + (drag.P[2] - ray.o[2]) * n[2]) / den;
+    if (!(t > 0)) return;
+    sim.setGrabGoal(ray.o[0] + ray.d[0] * t, ray.o[1] + ray.d[1] * t, ray.o[2] + ray.d[2] * t);
+  }
+  function setTwist(a) {
+    drag.twist = Math.max(-1.4, Math.min(1.4, a));
+    sim.grab.twist = drag.twist;
+  }
+  function endDrag() {
+    if (drag && drag.mode === 'grab') sim.endGrab();
+    drag = null;
+    canvas.classList.remove('grabbing', 'orbiting');
+  }
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    e.preventDefault();
+    try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (!drag) {
+      const hit = paused ? null : pick(e.clientX, e.clientY, e.pointerType);
+      if (hit) beginGrab(hit, e);
+      else { drag = { mode: 'orbit', id: e.pointerId, lx: e.clientX, ly: e.clientY }; canvas.classList.add('orbiting'); }
+    } else if (drag.mode === 'grab' && pointers.size === 2) {
+      const g = pointers.get(drag.id);
+      drag.twistRef = Math.atan2(e.clientY - g.y, e.clientX - g.x);
+      drag.twistId = e.pointerId;
+    }
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    const pt = pointers.get(e.pointerId);
+    if (!pt) {
+      if (e.pointerType === 'mouse' && !drag) canvas.classList.toggle('can-grab', !paused && !!sim.raycast(rpos, clientRay(e.clientX, e.clientY).o, clientRay(e.clientX, e.clientY).d));
+      return;
+    }
+    pt.x = e.clientX; pt.y = e.clientY;
+    if (!drag) return;
+    if (drag.mode === 'grab') {
+      if (e.pointerId === drag.id) moveGrab(e.clientX, e.clientY);
+      if (drag.twistId !== undefined && pointers.has(drag.twistId)) {
+        const g = pointers.get(drag.id), q = pointers.get(drag.twistId);
+        const ang = Math.atan2(q.y - g.y, q.x - g.x), da = ang - drag.twistRef;
+        drag.twistRef = ang;
+        setTwist(drag.twist + Math.atan2(Math.sin(da), Math.cos(da)));
+      }
+    } else if (drag.mode === 'orbit' && e.pointerId === drag.id) {
+      const dx = e.clientX - drag.lx, dy = e.clientY - drag.ly;
+      drag.lx = e.clientX; drag.ly = e.clientY;
+      cam.yawT -= dx * 0.0055;
+      cam.pitchT = Math.max(0.16, Math.min(1.15, cam.pitchT + dy * 0.0045));
+    }
+  });
+  const release = (e) => {
+    pointers.delete(e.pointerId);
+    if (drag && e.pointerId === drag.id) endDrag();
+    else if (drag && e.pointerId === drag.twistId) drag.twistId = undefined;
+  };
+  canvas.addEventListener('pointerup', release);
+  canvas.addEventListener('pointercancel', release);
+  canvas.addEventListener('lostpointercapture', release);
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+    if (drag && drag.mode === 'grab') setTwist(drag.twist - dy * 0.0024);
+    else cam.zoomT = Math.max(0.7, Math.min(1.5, cam.zoomT * Math.exp(-dy * 0.0012)));
+  }, { passive: false });
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // ---------------------------------------------------------- per-frame uniforms
+  function writeFrame(now) {
+    frameData.set(viewProj, 0);
+    frameData.set(invViewProj, 16);
+    const cx = com[0], cz = com[2], SH = 1.8;
+    M4.lookAt([cx + KEY[0] * 6, 0.2 + KEY[1] * 6, cz + KEY[2] * 6], [cx, 0.2, cz], [0, 1, 0], lightView);
+    M4.ortho(-SH, SH, -SH, SH, 0.5, 12, lightProj);
+    M4.mul(lightProj, lightView, lightVP);
+    frameData.set(lightVP, 32);
+    M4.lookAt([cx, -1, cz], [cx, 0, cz], [0, 0, -1], aoViewM);
+    M4.ortho(-1.8, 1.8, -1.8, 1.8, 0.2, 8, aoProj);
+    M4.mul(aoProj, aoViewM, aoVP);
+    frameData.set(aoVP, 48);
+    frameData.set([cam.eye[0], cam.eye[1], cam.eye[2], now / 1000], 64);
+    frameData.set([KEY[0], KEY[1], KEY[2], 1.0], 68);
+    frameData.set([T.w, T.h, 1 / T.w, 1 / T.h], 72);
+    frameData.set([cx, cz, 1.8, 0], 76);
+    frameData.set([SH, 11.5, (SHADOW / (2 * SH)) * 0.085, 0], 80);
+    frameData.set([showMesh ? 1 : 0, 1.0, 0, 0], 84);
+    device.queue.writeBuffer(frameBuf, 0, frameData);
+  }
+
+  // ---------------------------------------------------------- frame
+  const wgV = Math.ceil(nVerts / 64), wgI = Math.ceil(nInst / 64);
+  let last = performance.now(), live = false, roTimer = 0, simMs = 0;
+  const st = {};
+  if (!reduceMotion) sim.reset(0.32, 0.09);
+
+  function frame(now) {
+    if (!running) return;
+    requestAnimationFrame(frame);
+    let dt = (now - last) / 1000; last = now;
+    if (!(dt >= 0)) dt = 0;
+    if (dt > 0.1) dt = 0.1;
+    if ((window.devicePixelRatio || 1) !== lastDpr) { lastDpr = window.devicePixelRatio || 1; scaleCeil = 1; upWait = 3; resize(); }
+    adaptQuality(dt);
+
+    const t0 = performance.now();
+    if (!paused) {
+      acc += dt * (slow ? 0.25 : 1);
+      let steps = 0;
+      // catch up in fixed steps; beyond two per frame only while there is CPU budget left
+      while (acc >= STEP && steps < C.MAX_STEPS && (steps < 2 || performance.now() - t0 < 10)) { sim.step(STEP); acc -= STEP; steps++; }
+      if (acc >= STEP) acc %= STEP;          // bounded: a slow frame becomes slow motion
+    }
+    sim.interpolate(acc / STEP, rpos);
+    sim.computeNodeFrames(rpos, nodeData);
+    sim.centerOfMass(rpos, com);
+    simMs += (performance.now() - t0 - simMs) * 0.1;
+    device.queue.writeBuffer(nodeBuf, 0, nodeData);
+    stepMaterial(dt);
+    updateCamera(dt, com, !!(drag && drag.mode === 'grab'));
+    writeFrame(now);
+
+    const enc = device.createCommandEncoder({ label: 'frame' });
+    const cp = enc.beginComputePass({ label: 'embed' });
+    cp.setBindGroup(0, bgComp0); cp.setBindGroup(1, bgSurf);
+    cp.setPipeline(cSkin); cp.dispatchWorkgroups(wgV);
+    cp.setPipeline(cNorm); cp.dispatchWorkgroups(wgV);
+    cp.setPipeline(cInst); cp.setBindGroup(1, bgComp1); cp.dispatchWorkgroups(wgI);
+    cp.end();
+
+    let rp = enc.beginRenderPass(T.passShadow);
+    rp.setPipeline(pShadow); rp.setBindGroup(0, bgFrame);
+    rp.setVertexBuffer(0, vertBuf); rp.setIndexBuffer(idxBuf, 'uint32');
+    rp.drawIndexed(rmesh.indices.length);
+    rp.end();
+
+    rp = enc.beginRenderPass(T.passAO);
+    rp.setPipeline(pAO); rp.setBindGroup(0, bgFrame);
+    rp.setVertexBuffer(0, vertBuf); rp.setIndexBuffer(idxBuf, 'uint32');
+    rp.drawIndexed(rmesh.indices.length);
+    rp.end();
+
+    rp = enc.beginRenderPass(T.passOpaque);
+    rp.setBindGroup(0, bgFrame);
+    rp.setPipeline(pBg); rp.setBindGroup(1, bgBg); rp.draw(3);
+    rp.setPipeline(pInst); rp.setBindGroup(1, bgInst);
+    rp.setVertexBuffer(0, seedVB); rp.setIndexBuffer(seedIB, 'uint16');
+    rp.drawIndexed(seedMesh.count, inst.nSeedMesh, 0, 0, 0);
+    rp.setVertexBuffer(0, blobVB); rp.setIndexBuffer(blobIB, 'uint16');
+    rp.drawIndexed(blobMesh.count, inst.nBubbles, 0, 0, inst.nSeedMesh);
+    rp.end();
+
+    rp = enc.beginRenderPass(T.passBack);
+    rp.setPipeline(pBack); rp.setBindGroup(0, bgFrame);
+    rp.setVertexBuffer(0, vertBuf); rp.setVertexBuffer(1, restBuf); rp.setIndexBuffer(idxBuf, 'uint32');
+    rp.drawIndexed(rmesh.indices.length);
+    rp.end();
+
+    rp = enc.beginRenderPass(T.passJelly);
+    rp.setBindGroup(0, bgFrame);
+    rp.setPipeline(pCopy); rp.setBindGroup(1, T.bgCopy); rp.draw(3);
+    rp.setPipeline(pJelly); rp.setBindGroup(1, T.bgJelly);
+    rp.setVertexBuffer(0, vertBuf); rp.setVertexBuffer(1, restBuf); rp.setIndexBuffer(idxBuf, 'uint32');
+    rp.drawIndexed(rmesh.indices.length);
+    if (showMesh) {
+      rp.setPipeline(pLines); rp.setVertexBuffer(0, nodeBuf); rp.setIndexBuffer(edgeIB, 'uint32');
+      rp.drawIndexed(sim.edges.length);
+    }
+    rp.end();
+
+    T.passPost.colorAttachments[0].view = ctx.getCurrentTexture().createView();
+    rp = enc.beginRenderPass(T.passPost);
+    rp.setPipeline(pPost); rp.setBindGroup(0, bgFrame); rp.setBindGroup(1, T.bgPost); rp.draw(3);
+    rp.end();
+    device.queue.submit([enc.finish()]);
+    sampleGpu();
+
+    hooks.frames++;
+    if (!live) { live = true; hooks.ready = true; setStatus('live', paused ? 'WEBGPU · LIVE · PAUSED' : 'WEBGPU · LIVE'); }
+    roTimer -= dt;
+    if (roTimer <= 0) {
+      roTimer = 0.12;
+      sim.stats(st);
+      $('roVol').textContent = (st.volume * 100).toFixed(1);
+      const ke = st.ke * KE_MJ;
+      $('roKE').textContent = ke.toFixed(ke < 10 ? 2 : 1);
+      // the title steps back only when the slice really sits on its lettering (not when a
+      // bounding box grazes empty space), with hysteresis so a wobbling tip doesn't blink it
+      const lines = [];
+      for (const el of els.mast.querySelectorAll('.eyebrow, h1 span, .caption span')) {
+        const rg = document.createRange(); rg.selectNodeContents(el);
+        for (const q of rg.getClientRects()) if (q.width > 0) lines.push(q);
+      }
+      let inside = 0;
+      for (let i = 0; i < sim.n; i++) {
+        const s = worldToClient(rpos[3 * i], rpos[3 * i + 1], rpos[3 * i + 2]);
+        for (const q of lines) if (s.x > q.left && s.x < q.right && s.y > q.top && s.y < q.bottom) { inside++; break; }
+      }
+      els.mast.classList.toggle('veiled', els.mast.classList.contains('veiled') ? inside >= 2 : inside >= 6);
+    }
+  }
+
+  // ---------------------------------------------------------- test / inspection hooks
+  Object.assign(hooks, {
+    sim, C, cam,
+    simMs: () => simMs,
+    stats: () => sim.stats({}),
+    anchors: () => {
+      const out = {};
+      for (const [k, i] of Object.entries(sim.anchors)) out[k] = worldToClient(rpos[3 * i], rpos[3 * i + 1], rpos[3 * i + 2]);
+      const c = worldToClient(com[0], com[1], com[2]); out.center = c;
+      return out;
+    },
+    freeRect: () => ({ ...free }),
+    screenBounds: () => {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (let i = 0; i < sim.n; i++) {
+        const s = worldToClient(rpos[3 * i], rpos[3 * i + 1], rpos[3 * i + 2]);
+        x0 = Math.min(x0, s.x); y0 = Math.min(y0, s.y); x1 = Math.max(x1, s.x); y1 = Math.max(y1, s.y);
+      }
+      return { left: x0, top: y0, right: x1, bottom: y1 };
+    },
+    grabbing: () => !!(drag && drag.mode === 'grab'),
+    setPaused, doReset, doNudge, setPreset: (i) => { const r = document.querySelector(`input[name=preset][value="${i}"]`); r.checked = true; setPreset(i); },
+    async readback() {
+      const a = device.createBuffer({ size: vertBuf.size, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+      const b = device.createBuffer({ size: instOutBuf.size, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+      const frames = nodeData.slice();
+      const enc = device.createCommandEncoder();
+      enc.copyBufferToBuffer(vertBuf, 0, a, 0, vertBuf.size);
+      enc.copyBufferToBuffer(instOutBuf, 0, b, 0, instOutBuf.size);
+      device.queue.submit([enc.finish()]);
+      await Promise.all([a.mapAsync(GPUMapMode.READ), b.mapAsync(GPUMapMode.READ)]);
+      const vv = new Float32Array(a.getMappedRange().slice(0)), ii = new Float32Array(b.getMappedRange().slice(0));
+      a.unmap(); b.unmap(); a.destroy(); b.destroy();
+      let nan = 0, minY = Infinity, maxY = -Infinity, maxErr = 0, nrmBad = 0;
+      const tmp = [0, 0, 0];
+      for (let i = 0; i < nVerts; i++) {
+        const x = vv[8 * i], y = vv[8 * i + 1], z = vv[8 * i + 2];
+        if (!Number.isFinite(x + y + z)) { nan++; continue; }
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+        const nl = Math.hypot(vv[8 * i + 4], vv[8 * i + 5], vv[8 * i + 6]);
+        if (!(Math.abs(nl - 1) < 1e-3)) nrmBad++;
+        if (i % 37 === 0) {
+          Core.embedPoint(frames, sim.rest, skinW.idx, skinW.wt, 8 * i, rmesh.positions[3 * i], rmesh.positions[3 * i + 1], rmesh.positions[3 * i + 2], tmp);
+          maxErr = Math.max(maxErr, Math.hypot(tmp[0] - x, tmp[1] - y, tmp[2] - z));
+        }
+      }
+      // every seed/bubble must sit where the deformed flesh puts it, and never drift off the surface
+      let instErr = 0, seedSurf = 0, orthoErr = 0;
+      for (let k = 0; k < nInst; k++) {
+        const q = inst.list[k];
+        Core.embedPoint(frames, sim.rest, instW.idx, instW.wt, 8 * k, q.c[0], q.c[1], q.c[2], tmp);
+        const px = ii[16 * k + 12], py = ii[16 * k + 13], pz = ii[16 * k + 14];
+        instErr = Math.max(instErr, Math.hypot(tmp[0] - px, tmp[1] - py, tmp[2] - pz));
+        if (q.kind === 0) {
+          let dmin = Infinity;
+          for (let i = 0; i < nVerts; i += 3) dmin = Math.min(dmin, Math.hypot(vv[8 * i] - px, vv[8 * i + 1] - py, vv[8 * i + 2] - pz));
+          seedSurf = Math.max(seedSurf, dmin);
+        }
+        // M = R·L with R orthonormal ⇒ |M col j| = |L col j|
+        for (let j = 0; j < 3; j++) {
+          const m = Math.hypot(ii[16 * k + 4 * j], ii[16 * k + 4 * j + 1], ii[16 * k + 4 * j + 2]);
+          const l = Math.hypot(q.L[3 * j], q.L[3 * j + 1], q.L[3 * j + 2]);
+          orthoErr = Math.max(orthoErr, Math.abs(m - l) / l);
+        }
+      }
+      return { nVerts, nInst, nan, minY, maxY, maxErr, nrmBad, instErr, seedSurf, orthoErr };
+    },
+  });
+
+  Object.defineProperty(hooks, 'paused', { get: () => paused, enumerable: true });
+  requestAnimationFrame((t) => { last = t; frame(t); });
+}
+
+main().catch((e) => fail('The renderer could not start: ' + (e && e.message ? e.message : e), e));
+</script>
+</body>
+</html>
